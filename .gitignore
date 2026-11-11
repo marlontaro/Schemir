@@ -8,6 +8,10 @@
 # Tauri — esquemas generados en cada build
 **/gen/schemas
 
+# Iconos de móvil generados por `tauri icon` (proyecto de escritorio)
+src-tauri/icons/android/
+src-tauri/icons/ios/
+
 # Bases de prueba locales
 *.db
 *.sqlite

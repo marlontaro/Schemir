@@ -15,6 +15,9 @@ _Última actualización: noviembre 2026._
   diferencias** a color (solo en A / solo en B / diferente / igual).
 - **Interfaz por fases** (Conexión → Comparación), **bilingüe ES/EN** y con
   **tema claro / oscuro / sistema**.
+- **Aplicar al destino:** ejecutar el script contra la base B desde la app, con
+  confirmación y en una transacción (verificado en SQLite).
+- **Instalador para macOS** (`.dmg`) generado con `tauri build`.
 - **Núcleo probado:** 18 pruebas unitarias en `datadiff-core`.
 
 ## ⚠️ Pendiente de verificar
@@ -25,8 +28,6 @@ _Última actualización: noviembre 2026._
 
 ## 🔜 Próximo
 
-- **Aplicar el script al destino:** ejecutar la migración desde la app, con confirmación
-  (hoy solo se genera y se guarda el SQL).
 - **Opciones de comparación:** ignorar comentarios, mayúsculas/minúsculas, orden de columnas…
 - **Más objetos:** triggers, secuencias, tipos definidos por usuario, permisos.
 
@@ -39,7 +40,7 @@ _Última actualización: noviembre 2026._
 
 ## 📦 Pulido y distribución
 
-- **Instaladores** con `tauri build` → `.dmg` / `.msi` / `.AppImage`.
+- **Instaladores** para Windows (`.msi`) y Linux (`.AppImage`) — el `.dmg` de macOS ya está.
 - **Capturas** en el README y una versión en inglés.
 - **CI** (GitHub Actions) para compilar y correr los tests en cada push.
 
