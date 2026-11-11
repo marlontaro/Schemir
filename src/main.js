@@ -60,6 +60,10 @@ const I18N = {
     "zoom.out": "Alejar",
     "zoom.fit": "Ajustar a la vista",
     "zoom.full": "Pantalla completa",
+    "btn.exportPng": "Exportar PNG",
+    "btn.exportSvg": "Exportar SVG",
+    "export.png": "Guardar el diagrama como imagen PNG",
+    "export.svg": "Guardar el diagrama como SVG (vectorial)",
     "diag.field": "Campo",
     "diag.type": "Tipo de dato",
     "diag.key": "Clave",
@@ -131,6 +135,10 @@ const I18N = {
     "zoom.out": "Zoom out",
     "zoom.fit": "Reset view",
     "zoom.full": "Fullscreen",
+    "btn.exportPng": "Export PNG",
+    "btn.exportSvg": "Export SVG",
+    "export.png": "Save the diagram as a PNG image",
+    "export.svg": "Save the diagram as SVG (vector)",
     "diag.field": "Field",
     "diag.type": "Data type",
     "diag.key": "Key",
@@ -216,6 +224,15 @@ async function pickSqliteFile() {
 async function saveSqlDialog() {
   const tauri = window.__TAURI__;
   const options = { title: t("btn.saveSql"), defaultPath: "sincronizacion.sql", filters: [{ name: "SQL", extensions: ["sql"] }] };
+  let p = tauri?.dialog?.save ? await tauri.dialog.save(options) : await invoke("plugin:dialog|save", { options });
+  if (p && typeof p === "object") p = p.path ?? null;
+  return p || null;
+}
+
+/** Diálogo "Guardar como…" genérico (lo usan las exportaciones del diagrama). */
+async function saveFileDialog(title, defaultPath, filterName, ext) {
+  const tauri = window.__TAURI__;
+  const options = { title, defaultPath, filters: [{ name: filterName, extensions: [ext] }] };
   let p = tauri?.dialog?.save ? await tauri.dialog.save(options) : await invoke("plugin:dialog|save", { options });
   if (p && typeof p === "object") p = p.path ?? null;
   return p || null;
@@ -762,6 +779,192 @@ function keyBadge(key) {
   const fk = key.includes("FK") ? '<span class="k-fk">FK</span>' : "";
   return [pk, fk].filter(Boolean).join(" ");
 }
+
+// ===========================================================================
+// Exportar el diagrama (PNG / SVG)
+// ===========================================================================
+// Paleta clara fija para la exportación: el diagrama debe verse bien al pegarlo
+// en un documento, sin importar si la app está en modo claro u oscuro.
+const EXPORT = { bg: "#ffffff", card: "#ffffff", text: "#1f2933", muted: "#6b7280", edge: "#94a3b8", sep: "#eef2f6" };
+const EXPORT_ST = {
+  only_in_left:  { border: "#14b8a6", band: "#ccfbf1", bandText: "#0f766e" },
+  only_in_right: { border: "#38bdf8", band: "#e0f2fe", bandText: "#0369a1" },
+  different:     { border: "#f59e0b", band: "#fef3c7", bandText: "#92400e" },
+  equal:         { border: "#cbd5e1", band: "#f1f5f9", bandText: "#64748b" },
+  "":            { border: "#cbd5e1", band: "#f1f5f9", bandText: "#334155" },
+};
+const EXP_FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+const TITLE_H = 34, HEAD_H = 26;
+
+/** Ancho aproximado de un texto (para truncar sin medir en el DOM). */
+const textW = (s, px) => String(s).length * px * 0.58;
+
+/** Trunca un texto con «…» para que no exceda maxW píxeles. */
+function fitText(s, maxW, px) {
+  s = String(s);
+  if (maxW <= 0) return "";
+  if (textW(s, px) <= maxW) return s;
+  let n = s.length;
+  while (n > 0 && textW(s.slice(0, n) + "…", px) > maxW) n--;
+  return n > 0 ? s.slice(0, n) + "…" : "…";
+}
+
+function pill(x, cy, label, fill, color) {
+  const w = 22, h = 15;
+  return (
+    `<rect x="${x}" y="${(cy - h / 2).toFixed(1)}" width="${w}" height="${h}" rx="4" fill="${fill}"/>` +
+    `<text x="${x + w / 2}" y="${cy.toFixed(1)}" font-size="9.5" font-weight="700" fill="${color}" text-anchor="middle" dominant-baseline="middle">${label}</text>`
+  );
+}
+
+/** Serializa el diagrama actual (modelo + posiciones) a un SVG independiente. */
+function buildDiagramSvg() {
+  const model = diaModel;
+  const ids = Object.keys(nodePos);
+  if (!model || !model.tables || !ids.length) return null;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const id of ids) {
+    const p = nodePos[id];
+    minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x + p.w); maxY = Math.max(maxY, p.y + p.h);
+  }
+  const PAD = 24;
+  const W = Math.ceil(maxX - minX) + PAD * 2;
+  const H = Math.ceil(maxY - minY) + PAD * 2;
+  const ox = PAD - minX, oy = PAD - minY;
+
+  const parts = [];
+
+  // Relaciones (debajo de las tarjetas).
+  for (const rel of model.relations) {
+    const a = nodePos[rel.from], b = nodePos[rel.to];
+    if (!a || !b) continue;
+    const ax = a.x + a.w / 2 + ox, ay = a.y + a.h / 2 + oy;
+    const bx = b.x + b.w / 2 + ox, by = b.y + b.h / 2 + oy;
+    parts.push(`<line x1="${bx.toFixed(1)}" y1="${by.toFixed(1)}" x2="${ax.toFixed(1)}" y2="${ay.toFixed(1)}" stroke="${EXPORT.edge}" stroke-width="1.5"/>`);
+    if (rel.label) {
+      const mx = (ax + bx) / 2, my = (ay + by) / 2 - 5;
+      const lw = textW(rel.label, 11) + 8;
+      parts.push(`<rect x="${(mx - lw / 2).toFixed(1)}" y="${(my - 11).toFixed(1)}" width="${lw.toFixed(1)}" height="15" rx="3" fill="${EXPORT.bg}" opacity="0.85"/>`);
+      parts.push(`<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" font-size="11" fill="${EXPORT.muted}" text-anchor="middle">${esc(rel.label)}</text>`);
+    }
+  }
+
+  // Tarjetas.
+  for (const tbl of model.tables) {
+    const p = nodePos[tbl.id];
+    if (!p) continue;
+    const x = p.x + ox, y = p.y + oy, w = p.w, h = p.h;
+    const st = EXPORT_ST[tbl.status] || EXPORT_ST[""];
+    const cols = tbl.columns || [];
+    const rowsArea = Math.max(0, h - TITLE_H - HEAD_H);
+    const rowH = cols.length ? rowsArea / cols.length : rowsArea;
+    const nameX = x + 12, typeX = x + Math.round(w * 0.5), keyX = x + Math.round(w * 0.82);
+
+    parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="9" fill="${EXPORT.card}" stroke="${st.border}" stroke-width="1.5"/>`);
+    // Banda de título (esquinas superiores redondeadas).
+    parts.push(
+      `<path d="M${x + 1.5},${y + TITLE_H} L${x + 1.5},${y + 9} Q${x + 1.5},${y + 1.5} ${x + 9},${y + 1.5} ` +
+      `L${x + w - 9},${y + 1.5} Q${x + w - 1.5},${y + 1.5} ${x + w - 1.5},${y + 9} L${x + w - 1.5},${y + TITLE_H} Z" fill="${st.band}"/>`
+    );
+    parts.push(`<text x="${x + 12}" y="${(y + TITLE_H / 2 + 1).toFixed(1)}" font-size="13" font-weight="700" fill="${st.bandText}" dominant-baseline="middle">${esc(fitText(tbl.name, w - 24, 13))}</text>`);
+
+    // Encabezados de columna.
+    const hy = (y + TITLE_H + HEAD_H / 2).toFixed(1);
+    parts.push(`<text x="${nameX}" y="${hy}" font-size="10.5" fill="${EXPORT.muted}" dominant-baseline="middle">${esc(t("diag.field"))}</text>`);
+    parts.push(`<text x="${typeX}" y="${hy}" font-size="10.5" fill="${EXPORT.muted}" dominant-baseline="middle">${esc(t("diag.type"))}</text>`);
+    parts.push(`<text x="${keyX}" y="${hy}" font-size="10.5" fill="${EXPORT.muted}" dominant-baseline="middle">${esc(t("diag.key"))}</text>`);
+    parts.push(`<line x1="${x + 1}" y1="${y + TITLE_H + HEAD_H}" x2="${x + w - 1}" y2="${y + TITLE_H + HEAD_H}" stroke="${EXPORT.sep}" stroke-width="1"/>`);
+
+    // Filas.
+    cols.forEach((c, i) => {
+      const ry = y + TITLE_H + HEAD_H + i * rowH;
+      const cy = ry + rowH / 2;
+      if (i > 0) parts.push(`<line x1="${x + 1}" y1="${ry.toFixed(1)}" x2="${x + w - 1}" y2="${ry.toFixed(1)}" stroke="${EXPORT.sep}" stroke-width="1"/>`);
+      parts.push(`<text x="${nameX}" y="${cy.toFixed(1)}" font-size="12" fill="${EXPORT.text}" dominant-baseline="middle">${esc(fitText(c.name, typeX - nameX - 8, 12))}</text>`);
+      parts.push(`<text x="${typeX}" y="${cy.toFixed(1)}" font-size="11.5" fill="${EXPORT.muted}" dominant-baseline="middle">${esc(fitText(c.data_type, keyX - typeX - 6, 11.5))}</text>`);
+      let kx = keyX;
+      const key = c.key || "";
+      if (key.includes("PK")) { parts.push(pill(kx, cy, "PK", "#fde68a", "#92400e")); kx += 26; }
+      if (key.includes("FK")) { parts.push(pill(kx, cy, "FK", "#bae6fd", "#075985")); }
+    });
+  }
+
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="${EXP_FONT}">` +
+    `<rect x="0" y="0" width="${W}" height="${H}" fill="${EXPORT.bg}"/>` +
+    parts.join("") +
+    `</svg>`;
+  return { svg, width: W, height: H };
+}
+
+/** Rasteriza un SVG a bytes PNG mediante un canvas (sin dependencias externas). */
+async function svgToPngBytes(svg, width, height) {
+  let scale = 2;
+  const maxSide = Math.max(width, height);
+  if (maxSide * scale > 4096) scale = Math.max(1, 4096 / maxSide);
+
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    await new Promise((res, rej) => {
+      img.onload = () => res();
+      img.onerror = () => rej(new Error("No se pudo rasterizar el diagrama."));
+      img.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext("2d");
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0, width, height);
+    const out = await new Promise((res, rej) =>
+      canvas.toBlob((b) => (b ? res(b) : rej(new Error("No se pudo generar el PNG."))), "image/png")
+    );
+    return new Uint8Array(await out.arrayBuffer());
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function exportBaseName() {
+  return diaSide === "a" ? "diagrama-origen-a" : diaSide === "b" ? "diagrama-destino-b" : "diagrama-diferencias";
+}
+
+function showError(e) {
+  errorBanner.textContent = errText(e);
+  errorBanner.hidden = false;
+}
+
+async function exportDiagramSvg() {
+  errorBanner.hidden = true;
+  const out = buildDiagramSvg();
+  if (!out) return;
+  try {
+    const path = await saveFileDialog(t("btn.exportSvg"), exportBaseName() + ".svg", "SVG", "svg");
+    if (path) await invoke("save_text_file", { path, content: out.svg });
+  } catch (e) {
+    showError(e);
+  }
+}
+
+async function exportDiagramPng() {
+  errorBanner.hidden = true;
+  const out = buildDiagramSvg();
+  if (!out) return;
+  try {
+    const bytes = await svgToPngBytes(out.svg, out.width, out.height);
+    const path = await saveFileDialog(t("btn.exportPng"), exportBaseName() + ".png", "PNG", "png");
+    if (path) await invoke("save_binary_file", { path, data: Array.from(bytes) });
+  } catch (e) {
+    showError(e);
+  }
+}
+
+document.getElementById("export-png").addEventListener("click", exportDiagramPng);
+document.getElementById("export-svg").addEventListener("click", exportDiagramSvg);
 
 // ===========================================================================
 // Render de resultados

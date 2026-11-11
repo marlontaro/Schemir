@@ -53,10 +53,16 @@ async fn test_connection(config: ConnectionConfig) -> Result<String, String> {
     db::test_connection(&config).await
 }
 
-/// Guarda texto en un archivo (lo usa el botón "Guardar .sql").
+/// Guarda texto en un archivo (lo usa el botón "Guardar .sql" y "Exportar SVG").
 #[tauri::command]
 async fn save_text_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("No se pudo guardar el archivo: {e}"))
+}
+
+/// Guarda bytes en un archivo (lo usa "Exportar PNG" del diagrama).
+#[tauri::command]
+async fn save_binary_file(path: String, data: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&path, data).map_err(|e| format!("No se pudo guardar el archivo: {e}"))
 }
 
 /// Aplica (ejecuta) el script de sincronización contra la base indicada.
@@ -72,6 +78,7 @@ fn main() {
             compare_databases,
             test_connection,
             save_text_file,
+            save_binary_file,
             apply_script
         ])
         .run(tauri::generate_context!())

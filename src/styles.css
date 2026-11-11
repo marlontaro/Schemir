@@ -334,6 +334,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 
 /* ---------- Diagrama ER (renderizador propio) ---------- */
 .diagram-toggle .seg { font-size: 12px; padding: 6px 13px; }
+.diagram-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.diagram-right .btn { font-size: 12px; padding: 7px 13px; }
 .diagram-box {
   background: var(--diagram-bg); border: 1px solid var(--border); border-radius: var(--radius);
   position: relative; overflow: hidden; height: 600px; cursor: grab;
