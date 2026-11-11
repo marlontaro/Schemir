@@ -35,7 +35,7 @@ de sincronización** y un **diagrama entidad-relación**.
 | Motor | Driver | Notas |
 |---|---|---|
 | **SQL Server** | `tiberius` | Autenticación usuario/contraseña, TLS confiado en dev |
-| **PostgreSQL** | `tokio-postgres` | Conexión sin TLS (desarrollo local) |
+| **PostgreSQL** | `tokio-postgres` | TLS cuando el servidor lo soporta (RDS, Supabase…), confiando en su certificado |
 | **SQLite** | `rusqlite` (bundled) | Archivo local, sin servidor — ideal para probar |
 
 ---
@@ -124,7 +124,8 @@ cargo test
 
 - Compara **estructura** de objetos, no los datos de las filas (por diseño).
 - SQLite no tiene procedimientos ni funciones almacenadas (esas listas quedan vacías).
-- La conexión a PostgreSQL es **sin TLS** (pensada para local); falta el modo con SSL.
+- PostgreSQL usa TLS cuando el servidor lo soporta y **confía en su certificado** (como
+  SQL Server); para exigir la validación de la CA habría que agregar esa opción.
 - En SQLite, agregar o quitar una clave foránea requiere recrear la tabla, así que el
   script lo marca con un comentario en lugar de generar el `ALTER` (SQL Server y Postgres sí).
 

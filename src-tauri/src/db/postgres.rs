@@ -7,7 +7,9 @@
 use std::collections::BTreeMap;
 
 use datadiff_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table};
-use tokio_postgres::{Client, Config, NoTls};
+use native_tls::TlsConnector;
+use postgres_native_tls::MakeTlsConnector;
+use tokio_postgres::{Client, Config};
 
 use super::{ConnectionConfig, DbResult};
 
@@ -20,7 +22,11 @@ async fn connect(cfg: &ConnectionConfig) -> DbResult<Client> {
         .dbname(&cfg.database)
         .user(&cfg.user)
         .password(&cfg.password);
-    let (client, connection) = config.connect(NoTls).await?;
+    // TLS que confía en el certificado del servidor (como trust_cert en SQL Server).
+    // Con sslmode=prefer (por defecto) usa TLS si el servidor lo soporta y texto plano si no,
+    // así funciona con Postgres local y con la nube (RDS, Supabase…) que exige SSL.
+    let tls = TlsConnector::builder().danger_accept_invalid_certs(true).build()?;
+    let (client, connection) = config.connect(MakeTlsConnector::new(tls)).await?;
     tokio::spawn(async move {
         let _ = connection.await;
     });
