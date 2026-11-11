@@ -178,10 +178,11 @@
           <div id="tab-diagram" class="tab-panel" hidden>
             <div class="toolbar">
               <div class="segmented diagram-toggle">
-                <button type="button" class="seg active" data-dia="a" data-i18n="diagram.sideA">Origen A</button>
+                <button type="button" class="seg active" data-dia="diff" data-i18n="diagram.sideDiff">Diferencias</button>
+                <button type="button" class="seg" data-dia="a" data-i18n="diagram.sideA">Origen A</button>
                 <button type="button" class="seg" data-dia="b" data-i18n="diagram.sideB">Destino B</button>
               </div>
-              <span class="script-info" data-i18n="diagram.legend">Diagrama entidad-relación · 🔑 PK · 🔗 FK</span>
+              <span class="script-info" id="diagram-legend"></span>
             </div>
             <div id="diagram-box" class="diagram-box"></div>
           </div>

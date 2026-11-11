@@ -350,3 +350,15 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .er-grid .er-c-key { text-align: right; padding-left: 20px; }
 .k-pk { color: var(--a); font-weight: 700; font-size: 10px; }
 .k-fk { color: var(--b); font-weight: 700; font-size: 10px; }
+
+/* Diagrama de diferencias: color por estado */
+.er-table.st-left { border-top: 3px solid var(--a); }
+.er-table.st-right { border-top: 3px solid var(--b); }
+.er-table.st-diff { border-top: 3px solid var(--diff); }
+.er-table.st-equal { border-top: 3px solid var(--equal); opacity: 0.55; }
+#diagram-legend .lg { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; font-size: 11px; font-weight: 600; }
+#diagram-legend .lg::before { content: "\25CF"; }
+#diagram-legend .lg-a { color: var(--a); }
+#diagram-legend .lg-b { color: var(--b); }
+#diagram-legend .lg-d { color: var(--diff); }
+#diagram-legend .lg-e { color: var(--equal); }

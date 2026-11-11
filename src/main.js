@@ -44,6 +44,7 @@ const I18N = {
     "script.info": "SQL para dejar <b class=\"side-b-text\">B</b> igual que <b class=\"side-a-text\">A</b> · revísalo antes de ejecutarlo.",
     "script.none": "-- (sin cambios)",
     "diagram.legend": "Diagrama entidad-relación · 🔑 PK · 🔗 FK",
+    "diagram.sideDiff": "Diferencias",
     "diagram.sideA": "Origen A",
     "diagram.sideB": "Destino B",
     "diagram.empty": "No hay tablas para diagramar en este lado.",
@@ -103,6 +104,7 @@ const I18N = {
     "script.info": "SQL to make <b class=\"side-b-text\">B</b> match <b class=\"side-a-text\">A</b> · review it before running.",
     "script.none": "-- (no changes)",
     "diagram.legend": "Entity-relationship diagram · 🔑 PK · 🔗 FK",
+    "diagram.sideDiff": "Differences",
     "diagram.sideA": "Source A",
     "diagram.sideB": "Target B",
     "diagram.empty": "No tables to diagram on this side.",
@@ -238,7 +240,8 @@ let lastObjects = [];
 let lastScript = "";
 let lastDiagramA = { tables: [], relations: [] };
 let lastDiagramB = { tables: [], relations: [] };
-let diaSide = "a";
+let lastDiagramDiff = { tables: [], relations: [] };
+let diaSide = "diff";
 let comparing = false;
 const activeFilters = new Set(["only_in_left", "only_in_right", "different"]);
 let searchText = "";
@@ -364,6 +367,7 @@ compareBtn.addEventListener("click", async () => {
     lastScript = result.script || "";
     lastDiagramA = result.diagram_a || { tables: [], relations: [] };
     lastDiagramB = result.diagram_b || { tables: [], relations: [] };
+    lastDiagramDiff = result.diagram_diff || { tables: [], relations: [] };
     renderResults();
     document.getElementById("script-box").innerHTML = highlightSql(lastScript || t("script.none"));
     document.getElementById("results").hidden = false;
@@ -427,7 +431,19 @@ document.querySelectorAll(".diagram-toggle .seg").forEach((seg) => {
 
 function renderDiagram() {
   const box = document.getElementById("diagram-box");
-  const model = diaSide === "a" ? lastDiagramA : lastDiagramB;
+  const model = diaSide === "diff" ? lastDiagramDiff : diaSide === "a" ? lastDiagramA : lastDiagramB;
+  const legend = document.getElementById("diagram-legend");
+  if (legend) {
+    if (diaSide === "diff") {
+      legend.innerHTML =
+        `<span class="lg lg-a">${esc(t("status.only_in_left"))}</span>` +
+        `<span class="lg lg-b">${esc(t("status.only_in_right"))}</span>` +
+        `<span class="lg lg-d">${esc(t("status.different"))}</span>` +
+        `<span class="lg lg-e">${esc(t("status.equal"))}</span>`;
+    } else {
+      legend.textContent = t("diagram.legend");
+    }
+  }
   box.innerHTML = "";
   if (!model || !model.tables || model.tables.length === 0) {
     box.innerHTML = `<p class="empty">${esc(t("diagram.empty"))}</p>`;
@@ -500,7 +516,8 @@ function renderDiagram() {
 
 function buildTableCard(tbl) {
   const card = document.createElement("div");
-  card.className = "er-table";
+  const stClass = { only_in_left: "st-left", only_in_right: "st-right", different: "st-diff", equal: "st-equal" }[tbl.status] || "";
+  card.className = "er-table" + (stClass ? " " + stClass : "");
   const rows = tbl.columns
     .map((c) => `<tr><td class="er-c-name">${esc(c.name)}</td><td class="er-c-type">${esc(c.data_type)}</td><td class="er-c-key">${keyBadge(c.key)}</td></tr>`)
     .join("");
