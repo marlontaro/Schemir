@@ -69,6 +69,14 @@ pub async fn read_schema(cfg: &ConnectionConfig) -> DbResult<Schema> {
     })
 }
 
+/// Ejecuta el script contra la base. Postgres corre un lote multi-sentencia como
+/// una sola transacción implícita, así que un error revierte todo.
+pub async fn apply_script(cfg: &ConnectionConfig, script: &str) -> DbResult<String> {
+    let client = connect(cfg).await?;
+    client.batch_execute(script).await?;
+    Ok("Cambios aplicados a PostgreSQL.".to_string())
+}
+
 const TABLES_SQL: &str = "\
 SELECT
     n.nspname AS schema_name,

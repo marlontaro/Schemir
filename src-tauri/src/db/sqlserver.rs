@@ -67,6 +67,36 @@ pub async fn read_schema(cfg: &ConnectionConfig) -> DbResult<Schema> {
     })
 }
 
+/// Separa el script en lotes por las líneas que son solo "GO".
+fn split_go_batches(script: &str) -> Vec<String> {
+    let mut batches = Vec::new();
+    let mut cur = String::new();
+    for line in script.lines() {
+        if line.trim().eq_ignore_ascii_case("GO") {
+            batches.push(std::mem::take(&mut cur));
+        } else {
+            cur.push_str(line);
+            cur.push('\n');
+        }
+    }
+    if !cur.trim().is_empty() {
+        batches.push(cur);
+    }
+    batches
+}
+
+/// Ejecuta el script contra la base, lote por lote (separados por GO).
+pub async fn apply_script(cfg: &ConnectionConfig, script: &str) -> DbResult<String> {
+    let mut client = connect(cfg).await?;
+    for batch in split_go_batches(script) {
+        if batch.trim().is_empty() {
+            continue;
+        }
+        client.simple_query(batch.as_str()).await?.into_results().await?;
+    }
+    Ok("Cambios aplicados a SQL Server.".to_string())
+}
+
 const TABLES_SQL: &str = "\
 SELECT
     s.name  AS schema_name,

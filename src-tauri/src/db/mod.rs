@@ -68,6 +68,21 @@ pub async fn test_connection(cfg: &ConnectionConfig) -> Result<String, String> {
     }
 }
 
+/// Ejecuta un script SQL contra la base indicada (aplica la migración).
+pub async fn apply_script(cfg: &ConnectionConfig, script: &str) -> Result<String, String> {
+    match cfg.engine {
+        EngineKind::SqlServer => sqlserver::apply_script(cfg, script).await.map_err(|e| e.to_string()),
+        EngineKind::Postgres => postgres::apply_script(cfg, script).await.map_err(|e| e.to_string()),
+        EngineKind::Sqlite => {
+            let (path, script) = (cfg.path.clone(), script.to_string());
+            tokio::task::spawn_blocking(move || sqlite::apply_script(&path, &script))
+                .await
+                .map_err(|e| format!("fallo en el hilo de SQLite: {e}"))?
+                .map_err(|e| e.to_string())
+        }
+    }
+}
+
 /// rusqlite es síncrono: lo ejecutamos en un hilo aparte (`spawn_blocking`) para
 /// no bloquear el runtime asíncrono de Tauri.
 async fn run_blocking<T, F>(path: String, f: F) -> Result<T, String>

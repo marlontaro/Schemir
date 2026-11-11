@@ -59,13 +59,20 @@ async fn save_text_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("No se pudo guardar el archivo: {e}"))
 }
 
+/// Aplica (ejecuta) el script de sincronización contra la base indicada.
+#[tauri::command]
+async fn apply_script(config: ConnectionConfig, script: String) -> Result<String, String> {
+    db::apply_script(&config, &script).await
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             compare_databases,
             test_connection,
-            save_text_file
+            save_text_file,
+            apply_script
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar DataDiff");

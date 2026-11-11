@@ -230,6 +230,8 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
   border-color: transparent; box-shadow: 0 6px 20px rgba(45, 212, 191, 0.26);
 }
 .btn.primary:disabled { background: var(--surface-2); color: var(--muted); box-shadow: none; }
+.btn.warn { border-color: rgba(251, 113, 133, 0.5); color: var(--diff); }
+.btn.warn:hover { background: rgba(251, 113, 133, 0.12); filter: none; }
 
 .compare-bar { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 26px 0 8px; }
 .compare-bar .btn.primary { font-size: 15px; padding: 13px 34px; border-radius: 11px; }

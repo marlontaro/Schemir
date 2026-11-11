@@ -63,6 +63,22 @@ fn file_label(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
+/// Ejecuta un script SQL contra la base en modo escritura, dentro de una
+/// transacción: si algo falla, se revierte todo (no deja la base a medias).
+pub fn apply_script(path: &str, script: &str) -> DbResult<String> {
+    if path.trim().is_empty() {
+        return Err("Indica la ruta del archivo SQLite.".into());
+    }
+    if !std::path::Path::new(path).exists() {
+        return Err(format!("No existe el archivo: {path}").into());
+    }
+    let mut conn = Connection::open(path)?; // lectura-escritura
+    let tx = conn.transaction()?;
+    tx.execute_batch(script)?;
+    tx.commit()?;
+    Ok("Cambios aplicados a la base SQLite.".to_string())
+}
+
 fn read_tables(conn: &Connection) -> DbResult<Vec<Table>> {
     let mut stmt = conn.prepare(
         "SELECT name FROM sqlite_master \

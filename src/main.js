@@ -46,6 +46,10 @@ const I18N = {
     "empty.filter": "No hay objetos que coincidan con el filtro.",
     "script.info": "SQL para dejar <b class=\"side-b-text\">B</b> igual que <b class=\"side-a-text\">A</b> · revísalo antes de ejecutarlo.",
     "script.none": "-- (sin cambios)",
+    "btn.apply": "Aplicar a B",
+    "apply.confirm": "¿Aplicar el script a la base B? Esto MODIFICA el destino (crea, altera y elimina objetos). Haz un respaldo antes.",
+    "apply.applying": "Aplicando…",
+    "apply.done": "✓ Aplicado a B. Vuelve a comparar para confirmar.",
     "diagram.legend": "Diagrama entidad-relación · 🔑 PK · 🔗 FK",
     "diagram.sideDiff": "Diferencias",
     "diagram.sideA": "Origen A",
@@ -109,6 +113,10 @@ const I18N = {
     "empty.filter": "No objects match the filter.",
     "script.info": "SQL to make <b class=\"side-b-text\">B</b> match <b class=\"side-a-text\">A</b> · review it before running.",
     "script.none": "-- (no changes)",
+    "btn.apply": "Apply to B",
+    "apply.confirm": "Apply the script to database B? This MODIFIES the target (creates, alters and drops objects). Make a backup first.",
+    "apply.applying": "Applying…",
+    "apply.done": "✓ Applied to B. Compare again to confirm.",
     "diagram.legend": "Entity-relationship diagram · 🔑 PK · 🔗 FK",
     "diagram.sideDiff": "Differences",
     "diagram.sideA": "Source A",
@@ -457,6 +465,46 @@ document.getElementById("save-script").addEventListener("click", async () => {
     errorBanner.hidden = false;
   }
 });
+
+// Aplicar el script a la base B (ejecutar la migración), con confirmación.
+document.getElementById("apply-script").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const status = document.getElementById("apply-status");
+  status.className = "conn-status";
+  status.textContent = "";
+  if (!lastScript || !lastScript.trim()) return;
+
+  let ok = false;
+  try {
+    ok = await askConfirm(t("apply.confirm"));
+  } catch {
+    ok = false;
+  }
+  if (!ok) return;
+
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t("apply.applying");
+  try {
+    await invoke("apply_script", { config: readConfig("b"), script: lastScript });
+    status.className = "conn-status ok";
+    status.textContent = t("apply.done");
+  } catch (err) {
+    status.className = "conn-status fail";
+    status.textContent = "✗ " + errText(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+});
+
+/** Confirmación nativa (diálogo de Tauri) con aspecto de advertencia. */
+async function askConfirm(message) {
+  const td = window.__TAURI__;
+  const options = { title: "DataDiff", kind: "warning" };
+  if (td?.dialog?.ask) return await td.dialog.ask(message, options);
+  return await invoke("plugin:dialog|ask", { message, ...options });
+}
 
 document.querySelectorAll(".diagram-toggle .seg").forEach((seg) => {
   seg.addEventListener("click", () => {
