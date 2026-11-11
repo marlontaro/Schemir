@@ -1,0 +1,19 @@
+# Rust
+/target
+**/target
+
+# Node / Tauri CLI
+/node_modules
+
+# Tauri — esquemas generados en cada build
+**/gen/schemas
+
+# Bases de prueba locales
+*.db
+*.sqlite
+*.sqlite3
+
+# SO / editores
+.DS_Store
+.idea/
+.vscode/

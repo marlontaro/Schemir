@@ -1,0 +1,30 @@
+[package]
+name = "datadiff"
+version = "0.1.0"
+edition = "2021"
+description = "DataDiff — comparador de objetos de base de datos"
+authors = ["SOEN"]
+
+# src-tauri es su propio workspace para que el `cargo test` del núcleo (en la
+# raíz) sea rápido y no tenga que resolver ni compilar Tauri / tiberius / rusqlite.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+datadiff-core = { path = "../crates/core" }
+tauri = { version = "2" }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+
+# --- SQL Server ---
+tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+
+# --- SQLite ---  (bundled = compila SQLite desde el fuente, sin depender del sistema)
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# --- PostgreSQL ---
+tokio-postgres = "0.7"

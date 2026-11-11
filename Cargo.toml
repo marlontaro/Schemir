@@ -1,0 +1,12 @@
+# Workspace raíz de DataDiff.
+# Por ahora solo compila/testea el núcleo (puro Rust, sin base de datos ni Tauri).
+# `src-tauri` es un workspace independiente (ver src-tauri/Cargo.toml) para que
+# `cargo test` aquí sea rápido y no arrastre las dependencias pesadas de la app.
+[workspace]
+resolver = "2"
+members = ["crates/core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
