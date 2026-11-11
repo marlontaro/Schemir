@@ -12,7 +12,8 @@ _Última actualización: noviembre 2026._
 - **Script de sincronización** (`CREATE` / `ALTER` / `DROP`) por dialecto, incluyendo
   índices, FK y CHECK. Con copiar y guardar `.sql`.
 - **Diagrama ER** con renderizador propio (dagre): vista por esquema y **diagrama de
-  diferencias** a color (solo en A / solo en B / diferente / igual).
+  diferencias** a color (solo en A / solo en B / diferente / igual). Interactivo
+  (zoom, desplazamiento, arrastrar tablas, pantalla completa) y **exportable a PNG/SVG**.
 - **Interfaz por fases** (Conexión → Comparación), **bilingüe ES/EN** y con
   **tema claro / oscuro / sistema**.
 - **Aplicar al destino:** ejecutar el script contra la base B desde la app, con
@@ -36,7 +37,7 @@ _Última actualización: noviembre 2026._
 - **Comparar datos de filas** (no solo estructura), al estilo SQL Data Compare.
 - **Guardar / cargar una comparación** (como los `.scmp` de SSDT) y recordar conexiones recientes.
 - **Validación de CA en TLS** (hoy se confía en el certificado del servidor).
-- **Exportar** el diagrama (PNG/SVG) y un reporte de diferencias.
+- **Exportar un reporte de diferencias** (PDF/HTML) con el resumen y el script.
 - **Diseñador de diagramas ER:** crear y editar el modelo visualmente y exportarlo a
   SQL, Prisma, etc. (hoy el diagrama es de solo lectura).
 
