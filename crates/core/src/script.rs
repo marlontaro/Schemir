@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-use crate::model::{Column, Routine, RoutineKind, Schema, Table};
+use crate::model::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table};
 
 /// Dialecto SQL del destino (determina el entrecomillado y la sintaxis).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,6 +202,159 @@ fn routine_section(
     }
 }
 
+/// Separa un nombre calificado "schema.tabla" en sus dos partes.
+fn split_qualified(qn: &str) -> (&str, &str) {
+    qn.split_once('.').unwrap_or(("", qn))
+}
+
+fn create_index(d: Dialect, idx: &Index) -> String {
+    let (schema, table) = split_qualified(&idx.table);
+    let uniq = if idx.is_unique { "UNIQUE " } else { "" };
+    let cols = idx.columns.iter().map(|c| d.quote(c)).collect::<Vec<_>>().join(", ");
+    match d {
+        Dialect::Sqlite => format!("CREATE {uniq}INDEX {} ON {} ({});", d.quote(&idx.name), d.quote(table), cols),
+        _ => format!("CREATE {uniq}INDEX {} ON {} ({});", d.quote(&idx.name), d.qname(schema, table), cols),
+    }
+}
+
+fn drop_index(d: Dialect, idx: &Index) -> String {
+    let (schema, table) = split_qualified(&idx.table);
+    match d {
+        Dialect::SqlServer => format!("DROP INDEX {} ON {};", d.quote(&idx.name), d.qname(schema, table)),
+        Dialect::Postgres => format!("DROP INDEX IF EXISTS {};", d.qname(schema, &idx.name)),
+        Dialect::Sqlite => format!("DROP INDEX IF EXISTS {};", d.quote(&idx.name)),
+    }
+}
+
+fn add_fk(d: Dialect, fk: &ForeignKey) -> String {
+    if matches!(d, Dialect::Sqlite) {
+        return format!("-- SQLite: la FK «{}» requiere recrear la tabla (no soporta ADD CONSTRAINT).", fk.name);
+    }
+    let (fs, ft) = split_qualified(&fk.from_table);
+    let (ts, tt) = split_qualified(&fk.to_table);
+    let from_cols = fk.from_columns.iter().map(|c| d.quote(c)).collect::<Vec<_>>().join(", ");
+    let to_cols = fk.to_columns.iter().map(|c| d.quote(c)).collect::<Vec<_>>().join(", ");
+    format!(
+        "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({});",
+        d.qname(fs, ft),
+        d.quote(&fk.name),
+        from_cols,
+        d.qname(ts, tt),
+        to_cols
+    )
+}
+
+fn drop_fk(d: Dialect, fk: &ForeignKey) -> String {
+    if matches!(d, Dialect::Sqlite) {
+        return format!("-- SQLite: eliminar la FK «{}» requiere recrear la tabla.", fk.name);
+    }
+    let (fs, ft) = split_qualified(&fk.from_table);
+    format!("ALTER TABLE {} DROP CONSTRAINT {};", d.qname(fs, ft), d.quote(&fk.name))
+}
+
+fn add_check(d: Dialect, chk: &CheckConstraint) -> String {
+    let (s, t) = split_qualified(&chk.table);
+    // En SQL Server la definición es solo la expresión; en Postgres ya trae "CHECK (...)".
+    let body = match d {
+        Dialect::SqlServer => format!("CHECK {}", chk.definition),
+        _ => chk.definition.clone(),
+    };
+    format!("ALTER TABLE {} ADD CONSTRAINT {} {};", d.qname(s, t), d.quote(&chk.name), body)
+}
+
+fn drop_check(d: Dialect, chk: &CheckConstraint) -> String {
+    let (s, t) = split_qualified(&chk.table);
+    format!("ALTER TABLE {} DROP CONSTRAINT {};", d.qname(s, t), d.quote(&chk.name))
+}
+
+fn index_key(i: &Index) -> String {
+    format!("{}.{}", i.table, i.name)
+}
+fn same_index(a: &Index, b: &Index) -> bool {
+    a.columns == b.columns && a.is_unique == b.is_unique
+}
+fn same_fk(a: &ForeignKey, b: &ForeignKey) -> bool {
+    a.from_table == b.from_table && a.from_columns == b.from_columns && a.to_table == b.to_table && a.to_columns == b.to_columns
+}
+
+/// Emite CREATE/DROP de índices (crear los nuevos, recrear los distintos, borrar los sobrantes).
+fn sync_indexes(source: &[Index], target: &[Index], d: Dialect, out: &mut String, changes: &mut usize) {
+    let src: BTreeMap<String, &Index> = source.iter().map(|i| (index_key(i), i)).collect();
+    let tgt: BTreeMap<String, &Index> = target.iter().map(|i| (index_key(i), i)).collect();
+    for (k, i) in &src {
+        match tgt.get(k) {
+            None => {
+                let _ = writeln!(out, "{}", create_index(d, i));
+                *changes += 1;
+            }
+            Some(ti) if !same_index(i, ti) => {
+                let _ = writeln!(out, "{}", drop_index(d, ti));
+                let _ = writeln!(out, "{}", create_index(d, i));
+                *changes += 1;
+            }
+            _ => {}
+        }
+    }
+    for (k, ti) in &tgt {
+        if !src.contains_key(k) {
+            let _ = writeln!(out, "{}", drop_index(d, ti));
+            *changes += 1;
+        }
+    }
+}
+
+/// Emite ADD/DROP CONSTRAINT para las claves foráneas.
+fn sync_foreign_keys(source: &[ForeignKey], target: &[ForeignKey], d: Dialect, out: &mut String, changes: &mut usize) {
+    let src: BTreeMap<String, &ForeignKey> = source.iter().map(|f| (f.name.clone(), f)).collect();
+    let tgt: BTreeMap<String, &ForeignKey> = target.iter().map(|f| (f.name.clone(), f)).collect();
+    for (k, f) in &src {
+        match tgt.get(k) {
+            None => {
+                let _ = writeln!(out, "{}", add_fk(d, f));
+                *changes += 1;
+            }
+            Some(tf) if !same_fk(f, tf) => {
+                let _ = writeln!(out, "{}", drop_fk(d, tf));
+                let _ = writeln!(out, "{}", add_fk(d, f));
+                *changes += 1;
+            }
+            _ => {}
+        }
+    }
+    for (k, tf) in &tgt {
+        if !src.contains_key(k) {
+            let _ = writeln!(out, "{}", drop_fk(d, tf));
+            *changes += 1;
+        }
+    }
+}
+
+/// Emite ADD/DROP CONSTRAINT para las restricciones CHECK.
+fn sync_checks(source: &[CheckConstraint], target: &[CheckConstraint], d: Dialect, out: &mut String, changes: &mut usize) {
+    let src: BTreeMap<String, &CheckConstraint> = source.iter().map(|c| (c.name.clone(), c)).collect();
+    let tgt: BTreeMap<String, &CheckConstraint> = target.iter().map(|c| (c.name.clone(), c)).collect();
+    for (k, c) in &src {
+        match tgt.get(k) {
+            None => {
+                let _ = writeln!(out, "{}", add_check(d, c));
+                *changes += 1;
+            }
+            Some(tc) if normalize(&c.definition) != normalize(&tc.definition) => {
+                let _ = writeln!(out, "{}", drop_check(d, tc));
+                let _ = writeln!(out, "{}", add_check(d, c));
+                *changes += 1;
+            }
+            _ => {}
+        }
+    }
+    for (k, tc) in &tgt {
+        if !src.contains_key(k) {
+            let _ = writeln!(out, "{}", drop_check(d, tc));
+            *changes += 1;
+        }
+    }
+}
+
 /// Genera el script SQL que transforma el esquema `target` (B) en `source` (A).
 pub fn generate_sync_script(source: &Schema, target: &Schema, d: Dialect) -> String {
     let mut body = String::new();
@@ -231,6 +384,27 @@ pub fn generate_sync_script(source: &Schema, target: &Schema, d: Dialect) -> Str
     }
     if !alters.is_empty() {
         let _ = write!(body, "-- ─── Cambios en columnas ───\n{alters}\n");
+    }
+
+    // ── Índices ──
+    let mut idx_sql = String::new();
+    sync_indexes(&source.indexes, &target.indexes, d, &mut idx_sql, &mut changes);
+    if !idx_sql.is_empty() {
+        let _ = write!(body, "-- ─── Índices ───\n{idx_sql}\n");
+    }
+
+    // ── Claves foráneas ──
+    let mut fk_sql = String::new();
+    sync_foreign_keys(&source.foreign_keys, &target.foreign_keys, d, &mut fk_sql, &mut changes);
+    if !fk_sql.is_empty() {
+        let _ = write!(body, "-- ─── Claves foráneas ───\n{fk_sql}\n");
+    }
+
+    // ── Restricciones CHECK ──
+    let mut chk_sql = String::new();
+    sync_checks(&source.checks, &target.checks, d, &mut chk_sql, &mut changes);
+    if !chk_sql.is_empty() {
+        let _ = write!(body, "-- ─── Restricciones CHECK ───\n{chk_sql}\n");
     }
 
     // ── Vistas / Procedimientos / Funciones ──
@@ -330,6 +504,48 @@ mod tests {
         let s = generate_sync_script(&a, &b, Dialect::SqlServer);
         assert!(s.contains("DROP PROCEDURE IF EXISTS [dbo].[sp]"), "{s}");
         assert!(s.contains("SELECT 1"), "{s}");
+    }
+
+    #[test]
+    fn script_crea_indice_faltante() {
+        use crate::model::Index;
+        let a = Schema {
+            indexes: vec![Index { name: "ix1".into(), table: "dbo.C".into(), columns: vec!["a".into(), "b".into()], is_unique: true }],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::SqlServer);
+        assert!(s.contains("CREATE UNIQUE INDEX [ix1] ON [dbo].[C] ([a], [b]);"), "{s}");
+    }
+
+    #[test]
+    fn script_agrega_fk() {
+        use crate::model::ForeignKey;
+        let a = Schema {
+            foreign_keys: vec![ForeignKey {
+                name: "fk1".into(),
+                from_table: "dbo.Pedidos".into(),
+                from_columns: vec!["cliente_id".into()],
+                to_table: "dbo.Clientes".into(),
+                to_columns: vec!["id".into()],
+            }],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::Postgres);
+        assert!(
+            s.contains("ALTER TABLE \"dbo\".\"Pedidos\" ADD CONSTRAINT \"fk1\" FOREIGN KEY (\"cliente_id\") REFERENCES \"dbo\".\"Clientes\" (\"id\");"),
+            "{s}"
+        );
+    }
+
+    #[test]
+    fn script_dropea_indice_sobrante() {
+        use crate::model::Index;
+        let b = Schema {
+            indexes: vec![Index { name: "ix1".into(), table: "public.c".into(), columns: vec!["a".into()], is_unique: false }],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&Schema::default(), &b, Dialect::Postgres);
+        assert!(s.contains("DROP INDEX IF EXISTS \"public\".\"ix1\";"), "{s}");
     }
 
     #[test]

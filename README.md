@@ -20,8 +20,9 @@ de sincronización** y un **diagrama entidad-relación**.
 - 🧱 **Compara todos los objetos:** tablas y columnas (tipo, nulabilidad, *default*),
   vistas, procedimientos, funciones, **claves primarias y foráneas, índices y
   restricciones CHECK**.
-- 📝 **Script de sincronización:** genera el SQL (`CREATE` / `ALTER` / `DROP`) para
-  dejar B igual que A, consciente del dialecto de cada motor. Con copiar y guardar `.sql`.
+- 📝 **Script de sincronización:** genera el SQL (`CREATE` / `ALTER` / `DROP`) para dejar
+  B igual que A —tablas, columnas, vistas, procedimientos, **índices, claves foráneas y
+  CHECK**— consciente del dialecto de cada motor. Con copiar y guardar `.sql`.
 - 🗺️ **Diagrama ER:** renderizador propio (dagre) con encabezados **Campo · Tipo · Clave**,
   marcas 🔑 PK / 🔗 FK y las relaciones dibujadas.
 - 🗂️ **Multiesquema:** lee y compara todos los esquemas (`dbo`, `public`, los que tengas).
@@ -124,8 +125,8 @@ cargo test
 - Compara **estructura** de objetos, no los datos de las filas (por diseño).
 - SQLite no tiene procedimientos ni funciones almacenadas (esas listas quedan vacías).
 - La conexión a PostgreSQL es **sin TLS** (pensada para local); falta el modo con SSL.
-- El script de sincronización cubre tablas y rutinas; índices/constraints se **comparan**
-  pero aún no se incluyen en el script generado.
+- En SQLite, agregar o quitar una clave foránea requiere recrear la tabla, así que el
+  script lo marca con un comentario en lugar de generar el `ALTER` (SQL Server y Postgres sí).
 
 Ideas en el radar: TLS para Postgres, índices/constraints en el script, diagrama que
 resalta las diferencias a color, aplicar cambios al destino, y guardar/cargar la comparación.
