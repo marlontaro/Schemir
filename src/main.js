@@ -56,6 +56,10 @@ const I18N = {
     "diagram.sideB": "Destino B",
     "diagram.empty": "No hay tablas para diagramar en este lado.",
     "diagram.noEngine": "No se pudo cargar el motor de diagrama.",
+    "zoom.in": "Acercar",
+    "zoom.out": "Alejar",
+    "zoom.fit": "Ajustar a la vista",
+    "zoom.full": "Pantalla completa",
     "diag.field": "Campo",
     "diag.type": "Tipo de dato",
     "diag.key": "Clave",
@@ -123,6 +127,10 @@ const I18N = {
     "diagram.sideB": "Target B",
     "diagram.empty": "No tables to diagram on this side.",
     "diagram.noEngine": "Could not load the diagram engine.",
+    "zoom.in": "Zoom in",
+    "zoom.out": "Zoom out",
+    "zoom.fit": "Reset view",
+    "zoom.full": "Fullscreen",
     "diag.field": "Field",
     "diag.type": "Data type",
     "diag.key": "Key",
@@ -514,9 +522,126 @@ document.querySelectorAll(".diagram-toggle .seg").forEach((seg) => {
   });
 });
 
+// ── Estado del diagrama (zoom / pan / arrastre) ──
+let pan = { x: 0, y: 0, scale: 1 };
+let nodePos = {};
+let diaModel = null;
+let diagramHooked = false;
+
+const clampScale = (v) => Math.max(0.25, Math.min(3, v));
+
+function applyTransform() {
+  const canvas = document.getElementById("er-canvas");
+  if (canvas) canvas.style.transform = `translate(${pan.x}px, ${pan.y}px) scale(${pan.scale})`;
+}
+
+/** Zoom manteniendo fijo el punto (cx, cy) relativo a la caja del diagrama. */
+function zoomAt(cx, cy, factor) {
+  const ns = clampScale(pan.scale * factor);
+  const k = ns / pan.scale;
+  pan.x = cx - (cx - pan.x) * k;
+  pan.y = cy - (cy - pan.y) * k;
+  pan.scale = ns;
+  applyTransform();
+}
+
+/** Dibuja las relaciones como líneas entre centros (se recalcula al arrastrar). */
+function drawEdges() {
+  const svg = document.getElementById("er-edges");
+  if (!svg || !diaModel) return;
+  svg.textContent = "";
+  for (const rel of diaModel.relations) {
+    const a = nodePos[rel.from];
+    const b = nodePos[rel.to];
+    if (!a || !b) continue;
+    const ax = a.x + a.w / 2, ay = a.y + a.h / 2;
+    const bx = b.x + b.w / 2, by = b.y + b.h / 2;
+    const line = document.createElementNS(SVGNS, "line");
+    line.setAttribute("x1", bx);
+    line.setAttribute("y1", by);
+    line.setAttribute("x2", ax);
+    line.setAttribute("y2", ay);
+    line.setAttribute("class", "er-edge");
+    svg.appendChild(line);
+    if (rel.label) {
+      const text = document.createElementNS(SVGNS, "text");
+      text.setAttribute("x", (ax + bx) / 2);
+      text.setAttribute("y", (ay + by) / 2 - 5);
+      text.setAttribute("class", "er-edge-label");
+      text.textContent = rel.label;
+      svg.appendChild(text);
+    }
+  }
+}
+
+/** Hace que una tarjeta se pueda arrastrar (ajustando por el zoom actual). */
+function makeDraggable(card, id) {
+  card.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
+    const p = nodePos[id];
+    const start = { x: e.clientX, y: e.clientY, left: p.x, top: p.y };
+    const move = (ev) => {
+      p.x = Math.round(start.left + (ev.clientX - start.x) / pan.scale);
+      p.y = Math.round(start.top + (ev.clientY - start.y) / pan.scale);
+      card.style.left = p.x + "px";
+      card.style.top = p.y + "px";
+      drawEdges();
+    };
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      card.classList.remove("dragging");
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+    card.classList.add("dragging");
+  });
+}
+
+/** Engancha rueda (zoom) y arrastre del fondo (pan) a la caja — solo una vez. */
+function hookDiagramPanZoom(box) {
+  if (diagramHooked) return;
+  diagramHooked = true;
+  box.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const rect = box.getBoundingClientRect();
+      zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.1 : 1 / 1.1);
+    },
+    { passive: false }
+  );
+  box.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".er-table") || e.target.closest(".er-controls")) return;
+    const start = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+    const move = (ev) => {
+      pan.x = start.px + (ev.clientX - start.x);
+      pan.y = start.py + (ev.clientY - start.y);
+      applyTransform();
+    };
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      box.classList.remove("panning");
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+    box.classList.add("panning");
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") document.getElementById("tab-diagram")?.classList.remove("maximized");
+  });
+}
+
+function toggleDiagramFullscreen() {
+  document.getElementById("tab-diagram").classList.toggle("maximized");
+}
+
 function renderDiagram() {
   const box = document.getElementById("diagram-box");
   const model = diaSide === "diff" ? lastDiagramDiff : diaSide === "a" ? lastDiagramA : lastDiagramB;
+  diaModel = model;
+
   const legend = document.getElementById("diagram-legend");
   if (legend) {
     if (diaSide === "diff") {
@@ -529,6 +654,7 @@ function renderDiagram() {
       legend.textContent = t("diagram.legend");
     }
   }
+
   box.innerHTML = "";
   if (!model || !model.tables || model.tables.length === 0) {
     box.innerHTML = `<p class="empty">${esc(t("diagram.empty"))}</p>`;
@@ -539,13 +665,36 @@ function renderDiagram() {
     return;
   }
 
+  pan = { x: 0, y: 0, scale: 1 };
+
+  const controls = document.createElement("div");
+  controls.className = "er-controls";
+  const mkBtn = (label, title, onClick) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener("click", onClick);
+    return b;
+  };
+  controls.append(
+    mkBtn("+", t("zoom.in"), () => zoomAt(box.clientWidth / 2, box.clientHeight / 2, 1.2)),
+    mkBtn("−", t("zoom.out"), () => zoomAt(box.clientWidth / 2, box.clientHeight / 2, 1 / 1.2)),
+    mkBtn("⤢", t("zoom.fit"), () => { pan = { x: 0, y: 0, scale: 1 }; applyTransform(); }),
+    mkBtn("⛶", t("zoom.full"), toggleDiagramFullscreen)
+  );
+  box.appendChild(controls);
+
   const canvas = document.createElement("div");
   canvas.className = "er-canvas";
+  canvas.id = "er-canvas";
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("class", "er-edges");
+  svg.id = "er-edges";
   canvas.appendChild(svg);
   box.appendChild(canvas);
 
+  // Crear y medir las tarjetas.
   const cards = {};
   for (const tbl of model.tables) {
     const card = buildTableCard(tbl);
@@ -555,24 +704,31 @@ function renderDiagram() {
     cards[tbl.id] = card;
   }
 
+  // Layout inicial con dagre.
   const g = new window.dagre.graphlib.Graph();
-  g.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 70, marginx: 18, marginy: 18 });
+  g.setGraph({ rankdir: "TB", nodesep: 44, ranksep: 72, marginx: 24, marginy: 24 });
   g.setDefaultEdgeLabel(() => ({}));
   for (const tbl of model.tables) {
     const r = cards[tbl.id].getBoundingClientRect();
     g.setNode(tbl.id, { width: Math.ceil(r.width), height: Math.ceil(r.height) });
   }
   for (const rel of model.relations) {
-    if (cards[rel.from] && cards[rel.to]) g.setEdge(rel.to, rel.from, { label: rel.label });
+    if (cards[rel.from] && cards[rel.to]) g.setEdge(rel.to, rel.from);
   }
   window.dagre.layout(g);
 
+  // Posicionar, guardar posición y hacer arrastrable cada tarjeta.
+  nodePos = {};
   for (const tbl of model.tables) {
     const n = g.node(tbl.id);
+    const x = Math.round(n.x - n.width / 2);
+    const y = Math.round(n.y - n.height / 2);
+    nodePos[tbl.id] = { x, y, w: n.width, h: n.height };
     const card = cards[tbl.id];
-    card.style.left = Math.round(n.x - n.width / 2) + "px";
-    card.style.top = Math.round(n.y - n.height / 2) + "px";
+    card.style.left = x + "px";
+    card.style.top = y + "px";
     card.style.visibility = "visible";
+    makeDraggable(card, tbl.id);
   }
 
   const gw = Math.ceil(g.graph().width) || 400;
@@ -581,22 +737,10 @@ function renderDiagram() {
   canvas.style.height = gh + "px";
   svg.setAttribute("width", gw);
   svg.setAttribute("height", gh);
-  for (const e of g.edges()) {
-    const ed = g.edge(e);
-    const poly = document.createElementNS(SVGNS, "polyline");
-    poly.setAttribute("points", ed.points.map((p) => `${p.x},${p.y}`).join(" "));
-    poly.setAttribute("class", "er-edge");
-    svg.appendChild(poly);
-    if (ed.label) {
-      const mid = ed.points[Math.floor(ed.points.length / 2)];
-      const text = document.createElementNS(SVGNS, "text");
-      text.setAttribute("x", mid.x);
-      text.setAttribute("y", mid.y - 5);
-      text.setAttribute("class", "er-edge-label");
-      text.textContent = ed.label;
-      svg.appendChild(text);
-    }
-  }
+
+  drawEdges();
+  applyTransform();
+  hookDiagramPanZoom(box);
 }
 
 function buildTableCard(tbl) {

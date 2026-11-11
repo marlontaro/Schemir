@@ -37,6 +37,8 @@ _Última actualización: noviembre 2026._
 - **Guardar / cargar una comparación** (como los `.scmp` de SSDT) y recordar conexiones recientes.
 - **Validación de CA en TLS** (hoy se confía en el certificado del servidor).
 - **Exportar** el diagrama (PNG/SVG) y un reporte de diferencias.
+- **Diseñador de diagramas ER:** crear y editar el modelo visualmente y exportarlo a
+  SQL, Prisma, etc. (hoy el diagrama es de solo lectura).
 
 ## 📦 Pulido y distribución
 
