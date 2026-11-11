@@ -53,138 +53,160 @@
         </div>
         <div id="error" class="banner error" hidden></div>
 
-        <section class="connections">
-          <article class="card" data-side="a" data-engine="sqlserver">
-            <header class="card-head">
-              <div class="card-title">
-                <span class="side-badge side-a">A</span>
-                <h2 data-i18n="card.origin">Origen</h2>
-              </div>
-              <div class="segmented">
-                <button type="button" class="seg active" data-engine="sqlserver">SQL Server</button>
-                <button type="button" class="seg" data-engine="postgres">PostgreSQL</button>
-                <button type="button" class="seg" data-engine="sqlite">SQLite</button>
-              </div>
-            </header>
+        <!-- Stepper -->
+        <nav class="stepper">
+          <button type="button" class="step active" data-step="connection">
+            <span class="step-n">1</span><span data-i18n="step.connection">Conexión</span>
+          </button>
+          <div class="step-sep"></div>
+          <button type="button" class="step" data-step="comparison" disabled>
+            <span class="step-n">2</span><span data-i18n="step.comparison">Comparación</span>
+          </button>
+        </nav>
 
-            <div class="fields f-sqlserver">
-              <label><span data-i18n="field.server">Servidor</span><input name="host" placeholder="localhost" /></label>
-              <div class="row">
-                <label class="w-port"><span data-i18n="field.port">Puerto</span><input name="port" type="number" value="1433" /></label>
-                <label><span data-i18n="field.database">Base de datos</span><input name="database" data-i18n-ph="ph.database" placeholder="ventas" /></label>
-              </div>
-              <label><span data-i18n="field.user">Usuario</span><input name="user" placeholder="sa" /></label>
-              <label><span data-i18n="field.password">Contraseña</span><input name="password" type="password" /></label>
-            </div>
-
-            <div class="fields f-sqlite" hidden>
-              <div class="field-col">
-                <span class="lbl" data-i18n="field.sqliteFile">Archivo SQLite</span>
-                <div class="path-row">
-                  <input name="path" data-i18n-ph="ph.sqlitePath" placeholder="/ruta/a/base.db" />
-                  <button type="button" class="btn ghost browse-btn" data-i18n="btn.browse">Examinar…</button>
+        <!-- ═══ Paso 1 · Conexión ═══ -->
+        <section id="step-connection" class="phase">
+          <section class="connections">
+            <article class="card" data-side="a" data-engine="sqlserver">
+              <header class="card-head">
+                <div class="card-title">
+                  <span class="side-badge side-a">A</span>
+                  <h2 data-i18n="card.origin">Origen</h2>
                 </div>
+                <div class="segmented">
+                  <button type="button" class="seg active" data-engine="sqlserver">SQL Server</button>
+                  <button type="button" class="seg" data-engine="postgres">PostgreSQL</button>
+                  <button type="button" class="seg" data-engine="sqlite">SQLite</button>
+                </div>
+              </header>
+
+              <div class="fields f-sqlserver">
+                <label><span data-i18n="field.server">Servidor</span><input name="host" placeholder="localhost" /></label>
+                <div class="row">
+                  <label class="w-port"><span data-i18n="field.port">Puerto</span><input name="port" type="number" value="1433" /></label>
+                  <label><span data-i18n="field.database">Base de datos</span><input name="database" data-i18n-ph="ph.database" placeholder="ventas" /></label>
+                </div>
+                <label><span data-i18n="field.user">Usuario</span><input name="user" placeholder="sa" /></label>
+                <label><span data-i18n="field.password">Contraseña</span><input name="password" type="password" /></label>
               </div>
-              <p class="hint" data-i18n="hint.sqlite">Elige el archivo .db / .sqlite con «Examinar…» o pega la ruta.</p>
+
+              <div class="fields f-sqlite" hidden>
+                <div class="field-col">
+                  <span class="lbl" data-i18n="field.sqliteFile">Archivo SQLite</span>
+                  <div class="path-row">
+                    <input name="path" data-i18n-ph="ph.sqlitePath" placeholder="/ruta/a/base.db" />
+                    <button type="button" class="btn ghost browse-btn" data-i18n="btn.browse">Examinar…</button>
+                  </div>
+                </div>
+                <p class="hint" data-i18n="hint.sqlite">Elige el archivo .db / .sqlite con «Examinar…» o pega la ruta.</p>
+              </div>
+
+              <footer class="card-foot">
+                <button type="button" class="btn ghost test-btn" data-i18n="btn.test">Probar conexión</button>
+                <span class="conn-status"></span>
+              </footer>
+            </article>
+
+            <div class="connector" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 9h16M16 5l4 4-4 4M20 15H4M8 11l-4 4 4 4" />
+              </svg>
             </div>
 
-            <footer class="card-foot">
-              <button type="button" class="btn ghost test-btn" data-i18n="btn.test">Probar conexión</button>
-              <span class="conn-status"></span>
-            </footer>
-          </article>
+            <article class="card" data-side="b" data-engine="sqlserver">
+              <header class="card-head">
+                <div class="card-title">
+                  <span class="side-badge side-b">B</span>
+                  <h2 data-i18n="card.dest">Destino</h2>
+                </div>
+                <div class="segmented">
+                  <button type="button" class="seg active" data-engine="sqlserver">SQL Server</button>
+                  <button type="button" class="seg" data-engine="postgres">PostgreSQL</button>
+                  <button type="button" class="seg" data-engine="sqlite">SQLite</button>
+                </div>
+              </header>
 
-          <div class="connector" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M4 9h16M16 5l4 4-4 4M20 15H4M8 11l-4 4 4 4" />
-            </svg>
+              <div class="fields f-sqlserver">
+                <label><span data-i18n="field.server">Servidor</span><input name="host" placeholder="localhost" /></label>
+                <div class="row">
+                  <label class="w-port"><span data-i18n="field.port">Puerto</span><input name="port" type="number" value="1433" /></label>
+                  <label><span data-i18n="field.database">Base de datos</span><input name="database" data-i18n-ph="ph.database" placeholder="ventas" /></label>
+                </div>
+                <label><span data-i18n="field.user">Usuario</span><input name="user" placeholder="sa" /></label>
+                <label><span data-i18n="field.password">Contraseña</span><input name="password" type="password" /></label>
+              </div>
+
+              <div class="fields f-sqlite" hidden>
+                <div class="field-col">
+                  <span class="lbl" data-i18n="field.sqliteFile">Archivo SQLite</span>
+                  <div class="path-row">
+                    <input name="path" data-i18n-ph="ph.sqlitePath" placeholder="/ruta/a/base.db" />
+                    <button type="button" class="btn ghost browse-btn" data-i18n="btn.browse">Examinar…</button>
+                  </div>
+                </div>
+                <p class="hint" data-i18n="hint.sqlite">Elige el archivo .db / .sqlite con «Examinar…» o pega la ruta.</p>
+              </div>
+
+              <footer class="card-foot">
+                <button type="button" class="btn ghost test-btn" data-i18n="btn.test">Probar conexión</button>
+                <span class="conn-status"></span>
+              </footer>
+            </article>
+          </section>
+
+          <div class="compare-bar">
+            <button id="compare-btn" class="btn primary" disabled data-i18n="btn.compare">Comparar objetos</button>
+            <p id="compare-hint" class="compare-hint" data-i18n="compare.hint">Prueba las conexiones de A y B para habilitar la comparación.</p>
           </div>
-
-          <article class="card" data-side="b" data-engine="sqlserver">
-            <header class="card-head">
-              <div class="card-title">
-                <span class="side-badge side-b">B</span>
-                <h2 data-i18n="card.dest">Destino</h2>
-              </div>
-              <div class="segmented">
-                <button type="button" class="seg active" data-engine="sqlserver">SQL Server</button>
-                <button type="button" class="seg" data-engine="postgres">PostgreSQL</button>
-                <button type="button" class="seg" data-engine="sqlite">SQLite</button>
-              </div>
-            </header>
-
-            <div class="fields f-sqlserver">
-              <label><span data-i18n="field.server">Servidor</span><input name="host" placeholder="localhost" /></label>
-              <div class="row">
-                <label class="w-port"><span data-i18n="field.port">Puerto</span><input name="port" type="number" value="1433" /></label>
-                <label><span data-i18n="field.database">Base de datos</span><input name="database" data-i18n-ph="ph.database" placeholder="ventas" /></label>
-              </div>
-              <label><span data-i18n="field.user">Usuario</span><input name="user" placeholder="sa" /></label>
-              <label><span data-i18n="field.password">Contraseña</span><input name="password" type="password" /></label>
-            </div>
-
-            <div class="fields f-sqlite" hidden>
-              <div class="field-col">
-                <span class="lbl" data-i18n="field.sqliteFile">Archivo SQLite</span>
-                <div class="path-row">
-                  <input name="path" data-i18n-ph="ph.sqlitePath" placeholder="/ruta/a/base.db" />
-                  <button type="button" class="btn ghost browse-btn" data-i18n="btn.browse">Examinar…</button>
-                </div>
-              </div>
-              <p class="hint" data-i18n="hint.sqlite">Elige el archivo .db / .sqlite con «Examinar…» o pega la ruta.</p>
-            </div>
-
-            <footer class="card-foot">
-              <button type="button" class="btn ghost test-btn" data-i18n="btn.test">Probar conexión</button>
-              <span class="conn-status"></span>
-            </footer>
-          </article>
         </section>
 
-        <div class="compare-bar">
-          <button id="compare-btn" class="btn primary" disabled data-i18n="btn.compare">Comparar objetos</button>
-          <p id="compare-hint" class="compare-hint" data-i18n="compare.hint">Prueba las conexiones de A y B para habilitar la comparación.</p>
-        </div>
-
-        <section id="results" class="results" hidden>
-          <div class="summary" id="summary"></div>
-
-          <div class="tabs">
-            <button type="button" class="tab active" data-tab="diff" data-i18n="tab.diff">Diferencias</button>
-            <button type="button" class="tab" data-tab="script" data-i18n="tab.script">Script de sincronización</button>
-            <button type="button" class="tab" data-tab="diagram" data-i18n="tab.diagram">Diagrama</button>
+        <!-- ═══ Paso 2 · Comparación ═══ -->
+        <section id="step-comparison" class="phase" hidden>
+          <div class="phase-head">
+            <button type="button" id="back-btn" class="btn ghost" data-i18n="btn.back">← Conexión</button>
+            <span class="phase-title" id="phase-dbs"></span>
           </div>
 
-          <div id="tab-diff" class="tab-panel">
-            <div class="toolbar">
-              <div class="filters" id="filters"></div>
-              <input id="search" class="search" type="search" data-i18n-ph="search.ph" placeholder="Buscar objeto…" />
+          <div id="results" class="results">
+            <div class="summary" id="summary"></div>
+
+            <div class="tabs">
+              <button type="button" class="tab active" data-tab="diff" data-i18n="tab.diff">Diferencias</button>
+              <button type="button" class="tab" data-tab="script" data-i18n="tab.script">Script de sincronización</button>
+              <button type="button" class="tab" data-tab="diagram" data-i18n="tab.diagram">Diagrama</button>
             </div>
-            <div class="rows" id="rows"></div>
-            <p id="empty" class="empty" hidden data-i18n="empty.filter">No hay objetos que coincidan con el filtro.</p>
-          </div>
 
-          <div id="tab-script" class="tab-panel" hidden>
-            <div class="toolbar">
-              <span class="script-info" data-i18n-html="script.info">SQL para dejar <b class="side-b-text">B</b> igual que <b class="side-a-text">A</b> · revísalo antes de ejecutarlo.</span>
-              <div class="script-actions">
-                <button type="button" id="copy-script" class="btn ghost" data-i18n="btn.copy">Copiar</button>
-                <button type="button" id="save-script" class="btn ghost" data-i18n="btn.saveSql">Guardar .sql</button>
+            <div id="tab-diff" class="tab-panel">
+              <div class="toolbar">
+                <div class="filters" id="filters"></div>
+                <input id="search" class="search" type="search" data-i18n-ph="search.ph" placeholder="Buscar objeto…" />
               </div>
+              <div class="rows" id="rows"></div>
+              <p id="empty" class="empty" hidden data-i18n="empty.filter">No hay objetos que coincidan con el filtro.</p>
             </div>
-            <pre id="script-box" class="sql-box"></pre>
-          </div>
 
-          <div id="tab-diagram" class="tab-panel" hidden>
-            <div class="toolbar">
-              <div class="segmented diagram-toggle">
-                <button type="button" class="seg active" data-dia="diff" data-i18n="diagram.sideDiff">Diferencias</button>
-                <button type="button" class="seg" data-dia="a" data-i18n="diagram.sideA">Origen A</button>
-                <button type="button" class="seg" data-dia="b" data-i18n="diagram.sideB">Destino B</button>
+            <div id="tab-script" class="tab-panel" hidden>
+              <div class="toolbar">
+                <span class="script-info" data-i18n-html="script.info">SQL para dejar <b class="side-b-text">B</b> igual que <b class="side-a-text">A</b> · revísalo antes de ejecutarlo.</span>
+                <div class="script-actions">
+                  <button type="button" id="copy-script" class="btn ghost" data-i18n="btn.copy">Copiar</button>
+                  <button type="button" id="save-script" class="btn ghost" data-i18n="btn.saveSql">Guardar .sql</button>
+                </div>
               </div>
-              <span class="script-info" id="diagram-legend"></span>
+              <pre id="script-box" class="sql-box"></pre>
             </div>
-            <div id="diagram-box" class="diagram-box"></div>
+
+            <div id="tab-diagram" class="tab-panel" hidden>
+              <div class="toolbar">
+                <div class="segmented diagram-toggle">
+                  <button type="button" class="seg active" data-dia="diff" data-i18n="diagram.sideDiff">Diferencias</button>
+                  <button type="button" class="seg" data-dia="a" data-i18n="diagram.sideA">Origen A</button>
+                  <button type="button" class="seg" data-dia="b" data-i18n="diagram.sideB">Destino B</button>
+                </div>
+                <span class="script-info" id="diagram-legend"></span>
+              </div>
+              <div id="diagram-box" class="diagram-box"></div>
+            </div>
           </div>
         </section>
       </main>

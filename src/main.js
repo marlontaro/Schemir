@@ -36,6 +36,9 @@ const I18N = {
     "btn.saveSql": "Guardar .sql",
     "status.testing": "Probando…",
     "compare.hint": "Prueba las conexiones de A y B para habilitar la comparación.",
+    "step.connection": "Conexión",
+    "step.comparison": "Comparación",
+    "btn.back": "← Conexión",
     "tab.diff": "Diferencias",
     "tab.script": "Script de sincronización",
     "tab.diagram": "Diagrama",
@@ -96,6 +99,9 @@ const I18N = {
     "btn.saveSql": "Save .sql",
     "status.testing": "Testing…",
     "compare.hint": "Test both A and B connections to enable the comparison.",
+    "step.connection": "Connection",
+    "step.comparison": "Comparison",
+    "btn.back": "← Connection",
     "tab.diff": "Differences",
     "tab.script": "Synchronization script",
     "tab.diagram": "Diagram",
@@ -370,7 +376,10 @@ compareBtn.addEventListener("click", async () => {
     lastDiagramDiff = result.diagram_diff || { tables: [], relations: [] };
     renderResults();
     document.getElementById("script-box").innerHTML = highlightSql(lastScript || t("script.none"));
-    document.getElementById("results").hidden = false;
+    document.getElementById("phase-dbs").textContent = dbLabel(readConfig("a")) + "  ⇄  " + dbLabel(readConfig("b"));
+    hasCompared = true;
+    document.querySelector('.step[data-step="comparison"]').disabled = false;
+    goToStep("comparison");
   } catch (e) {
     errorBanner.textContent = errText(e);
     errorBanner.hidden = false;
@@ -380,6 +389,34 @@ compareBtn.addEventListener("click", async () => {
     refreshCompareState();
   }
 });
+
+// ===========================================================================
+// Navegación por fases (Paso 1 Conexión → Paso 2 Comparación)
+// ===========================================================================
+let hasCompared = false;
+
+function goToStep(step) {
+  document.getElementById("step-connection").hidden = step !== "connection";
+  document.getElementById("step-comparison").hidden = step !== "comparison";
+  document.querySelectorAll(".step").forEach((s) => s.classList.toggle("active", s.dataset.step === step));
+  window.scrollTo(0, 0);
+}
+
+document.querySelectorAll(".stepper .step").forEach((s) => {
+  s.addEventListener("click", () => {
+    if (s.dataset.step === "comparison" && !hasCompared) return;
+    goToStep(s.dataset.step);
+  });
+});
+
+document.getElementById("back-btn").addEventListener("click", () => goToStep("connection"));
+
+/** Etiqueta corta de una base para el encabezado del paso 2. */
+function dbLabel(cfg) {
+  if (cfg.engine === "sqlite") return "SQLite · " + (cfg.path.split(/[\\/]/).pop() || "—");
+  const eng = cfg.engine === "postgres" ? "PostgreSQL" : "SQL Server";
+  return eng + " · " + (cfg.database || cfg.host || "—");
+}
 
 // ===========================================================================
 // Pestañas, script y diagrama
