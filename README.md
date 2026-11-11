@@ -1,120 +1,137 @@
 # DataDiff
 
-Comparador de **objetos** de base de datos multiplataforma (macOS, Windows, Linux).
-Construido con **Rust + Tauri**. Compara esquemas y te muestra qué objetos sobran,
-faltan o difieren entre dos bases: **tablas, columnas, vistas, procedimientos y funciones**.
+> Comparador de **objetos** de base de datos — multiplataforma y multi-motor.
+> Una alternativa open source a **SSDT Schema Compare**, hecha con **Rust + Tauri**.
 
-> Estado: MVP inicial. Motores soportados: **SQL Server** y **SQLite**. PostgreSQL es el próximo.
-> Por ahora compara solo **objetos** (estructura), no los datos de las filas.
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
+![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?logo=tauri&logoColor=white)
+![Plataformas](https://img.shields.io/badge/macOS_·_Windows_·_Linux-informational)
+
+DataDiff conecta a dos bases de datos, compara sus **objetos** (estructura) y te
+muestra qué sobra, qué falta y qué difiere entre A y B — además genera el **script
+de sincronización** y un **diagrama entidad-relación**.
 
 ---
 
-## Arquitectura
+## ✨ Características
+
+- 🔌 **Tres motores:** SQL Server, PostgreSQL y SQLite.
+- 🧱 **Compara todos los objetos:** tablas y columnas (tipo, nulabilidad, *default*),
+  vistas, procedimientos, funciones, **claves primarias y foráneas, índices y
+  restricciones CHECK**.
+- 📝 **Script de sincronización:** genera el SQL (`CREATE` / `ALTER` / `DROP`) para
+  dejar B igual que A, consciente del dialecto de cada motor. Con copiar y guardar `.sql`.
+- 🗺️ **Diagrama ER:** renderizador propio (dagre) con encabezados **Campo · Tipo · Clave**,
+  marcas 🔑 PK / 🔗 FK y las relaciones dibujadas.
+- 🗂️ **Multiesquema:** lee y compara todos los esquemas (`dbo`, `public`, los que tengas).
+- 🌐 **Bilingüe ES / EN** y 🌗 **tema claro / oscuro / sistema**.
+- 🔒 Habilita la comparación solo cuando **ambas conexiones** están probadas; selector
+  de archivo nativo para SQLite; apertura en **solo lectura** (nunca modifica tus bases).
+
+## 🔌 Motores soportados
+
+| Motor | Driver | Notas |
+|---|---|---|
+| **SQL Server** | `tiberius` | Autenticación usuario/contraseña, TLS confiado en dev |
+| **PostgreSQL** | `tokio-postgres` | Conexión sin TLS (desarrollo local) |
+| **SQLite** | `rusqlite` (bundled) | Archivo local, sin servidor — ideal para probar |
+
+---
+
+## 🚀 Puesta en marcha (desarrollo)
+
+Requisitos: **Rust** (reciente, para Tauri 2) y **Node** (para la CLI de Tauri).
+
+```bash
+rustup update stable
+```
+```bash
+npm install
+```
+```bash
+npm run tauri dev
+```
+
+> La primera compilación tarda varios minutos (baja y compila Tauri y los drivers).
+> También puedes correr el binario directo: `cargo run --manifest-path src-tauri/Cargo.toml`.
+
+### Probar rápido con SQLite (sin servidor)
+
+Crea dos bases de ejemplo con una diferencia a propósito y compáralas (motor **SQLite**):
+
+```bash
+sqlite3 ejemplos/a.db "CREATE TABLE clientes(id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, email VARCHAR(50)); CREATE TABLE pedidos(id INTEGER PRIMARY KEY, cliente_id INTEGER REFERENCES clientes(id), total REAL); CREATE INDEX ix_pedidos_cliente ON pedidos(cliente_id); CREATE VIEW v_resumen AS SELECT cliente_id, COUNT(*) n FROM pedidos GROUP BY cliente_id;"
+sqlite3 ejemplos/b.db "CREATE TABLE clientes(id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, email VARCHAR(100), activo INTEGER); CREATE TABLE pedidos(id INTEGER PRIMARY KEY, cliente_id INTEGER REFERENCES clientes(id), total REAL); CREATE UNIQUE INDEX ux_clientes_email ON clientes(email); CREATE TABLE auditoria(id INTEGER PRIMARY KEY, accion TEXT);"
+```
+
+---
+
+## 🏗️ Arquitectura
 
 La clave para soportar varios motores sin duplicar lógica: cada motor lee sus
-catálogos del sistema y los traduce a un **modelo común**. El diff y la interfaz
-trabajan solo sobre ese modelo.
+catálogos del sistema y los traduce a un **modelo común**. El diff, el script y el
+diagrama trabajan solo sobre ese modelo.
 
 ```
-  Driver del motor (tiberius / rusqlite / …)
-        │  lee catálogos del sistema
+  Driver (tiberius / tokio-postgres / rusqlite)
+        │  lee los catálogos del sistema
         ▼
   Introspección  →  Schema (modelo normalizado, en datadiff-core)
         │
+        ├─▶ Motor de diff     →  Solo en A · Solo en B · Diferente · Igual
+        ├─▶ Script de sync    →  CREATE / ALTER / DROP (por dialecto)
+        └─▶ Modelo de diagrama →  entidades + relaciones
         ▼
-  Motor de diff  →  Solo en A · Solo en B · Diferente · Igual
-        │
-        ▼
-  Interfaz (Tauri + HTML/CSS/JS)
+  Interfaz (Tauri + HTML/CSS/JS, bilingüe y con temas)
 ```
 
 ### Estructura del proyecto
 
 ```
-ComparadorBaseDatos/
-├── crates/core/          # datadiff-core: modelo + motor de diff (puro Rust, con tests)
+DataDiff/
+├── crates/core/              # datadiff-core: lógica pura en Rust (con tests)
 │   └── src/
-│       ├── model.rs      #   Schema, Table, Column, Routine…
-│       └── diff.rs       #   compare_schemas() y sus tests
-├── src-tauri/            # app Tauri (backend Rust)
-│   ├── src/
-│   │   ├── main.rs       #   comandos: compare_databases, test_connection
-│   │   └── db/
-│   │       ├── mod.rs    #   ConnectionConfig + despacho por motor
-│   │       ├── sqlite.rs #   introspección SQLite (rusqlite)
-│   │       └── sqlserver.rs # introspección SQL Server (tiberius)
-│   └── tauri.conf.json
-└── src/                  # frontend (HTML/CSS/JS, sin framework)
-    ├── index.html
-    ├── styles.css
-    └── main.js
+│       ├── model.rs          #   Schema, Table, Column, Routine, ForeignKey, Index…
+│       ├── diff.rs           #   compare_schemas()
+│       ├── script.rs         #   generate_sync_script() por dialecto
+│       └── diagram.rs        #   to_diagram_model()
+├── src-tauri/                # app Tauri (backend Rust)
+│   └── src/
+│       ├── main.rs           #   comandos: compare_databases, test_connection, save_text_file
+│       └── db/
+│           ├── mod.rs        #   ConnectionConfig + despacho por motor
+│           ├── sqlserver.rs  #   introspección SQL Server (tiberius)
+│           ├── postgres.rs   #   introspección PostgreSQL (tokio-postgres)
+│           └── sqlite.rs     #   introspección SQLite (rusqlite)
+└── src/                      # frontend (HTML/CSS/JS, sin framework)
+    ├── index.html · styles.css · main.js
+    └── vendor/dagre.min.js   #   layout del diagrama
 ```
 
----
+### Tests
 
-## Puesta en marcha
-
-### 1. Actualizar Rust (necesario para Tauri 2)
-
-Este equipo tiene Rust 1.72 (2023); Tauri 2 y sus dependencias necesitan una versión más nueva:
-
-```bash
-rustup update stable
-```
-
-> Si tu Rust vino de Homebrew en vez de rustup: `brew upgrade rust`.
-
-### 2. Instalar la CLI de Tauri (vía npm, sin compilar)
-
-```bash
-npm install
-```
-
-### 3. Ejecutar la app en modo desarrollo
-
-```bash
-npm run tauri dev
-```
-
-La primera compilación tarda varios minutos (baja y compila Tauri, tiberius y SQLite).
-
----
-
-## Probar el núcleo (sin base de datos)
-
-El motor de comparación tiene tests y no necesita ninguna base:
+El núcleo (modelo, diff, script, diagrama) se prueba sin necesidad de ninguna base:
 
 ```bash
 cargo test
 ```
 
-## Probar rápido con SQLite (sin servidor)
-
-Crea dos bases de ejemplo y compáralas desde la app (motor **SQLite**, pegando las rutas):
-
-```bash
-sqlite3 /tmp/a.db "CREATE TABLE clientes(id INTEGER, email TEXT); CREATE VIEW v AS SELECT 1;"
-sqlite3 /tmp/b.db "CREATE TABLE clientes(id INTEGER, email VARCHAR(100), activo INTEGER);"
-```
-
 ---
 
-## Cómo agregar PostgreSQL (próximo paso)
+## 🗺️ Limitaciones y futuro
 
-1. Añadir `Postgres` a `EngineKind` en `src-tauri/src/db/mod.rs`.
-2. Crear `src-tauri/src/db/postgres.rs` con `read_schema()` y `test_connection()`
-   (usando `sqlx` o `tokio-postgres`), leyendo de `information_schema` / `pg_catalog`.
-3. Despacharlo en `read_schema` / `test_connection`.
-4. Agregar la opción "PostgreSQL" al selector de motor en `src/index.html`.
-
-El modelo y el motor de diff **no cambian**.
-
----
-
-## Limitaciones actuales
-
-- Compara estructura de objetos, no datos de filas (por diseño, por ahora).
+- Compara **estructura** de objetos, no los datos de las filas (por diseño).
 - SQLite no tiene procedimientos ni funciones almacenadas (esas listas quedan vacías).
-- Comparar entre motores distintos (p.ej. SQL Server vs SQLite) funciona, pero los
-  nombres de tipo difieren (`int` vs `INTEGER`), así que habrá diferencias esperables.
-  El caso principal es comparar dos bases del **mismo** motor.
+- La conexión a PostgreSQL es **sin TLS** (pensada para local); falta el modo con SSL.
+- El script de sincronización cubre tablas y rutinas; índices/constraints se **comparan**
+  pero aún no se incluyen en el script generado.
+
+Ideas en el radar: TLS para Postgres, índices/constraints en el script, diagrama que
+resalta las diferencias a color, aplicar cambios al destino, y guardar/cargar la comparación.
+
+---
+
+## 📄 Licencia
+
+[MIT](LICENSE) — © 2026 SOEN.
