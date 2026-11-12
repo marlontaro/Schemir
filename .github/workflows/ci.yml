@@ -24,12 +24,17 @@ jobs:
         run: cargo test --manifest-path Cargo.toml --locked
 
   app:
-    name: App (Tauri + integración)
-    runs-on: ubuntu-latest
+    name: App (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Dependencias de Tauri (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
