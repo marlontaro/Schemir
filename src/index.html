@@ -179,7 +179,10 @@
             <div id="tab-diff" class="tab-panel">
               <div class="toolbar">
                 <div class="filters" id="filters"></div>
-                <input id="search" class="search" type="search" data-i18n-ph="search.ph" placeholder="Buscar objeto…" />
+                <div class="diff-actions">
+                  <input id="search" class="search" type="search" data-i18n-ph="search.ph" placeholder="Buscar objeto…" />
+                  <button type="button" id="export-report" class="btn ghost" data-i18n="btn.report" data-i18n-title="report.hint">Exportar informe</button>
+                </div>
               </div>
               <div class="rows" id="rows"></div>
               <p id="empty" class="empty" hidden data-i18n="empty.filter">No hay objetos que coincidan con el filtro.</p>

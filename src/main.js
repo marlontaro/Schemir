@@ -64,6 +64,13 @@ const I18N = {
     "btn.exportSvg": "Exportar SVG",
     "export.png": "Guardar el diagrama como imagen PNG",
     "export.svg": "Guardar el diagrama como SVG (vectorial)",
+    "btn.report": "Exportar informe",
+    "report.hint": "Guardar un informe HTML (imprimible a PDF)",
+    "report.title": "Informe de comparación",
+    "report.generated": "Generado",
+    "report.objects": "Objetos con diferencias",
+    "report.script": "Script de sincronización",
+    "report.noChanges": "No se encontraron diferencias.",
     "diag.field": "Campo",
     "diag.type": "Tipo de dato",
     "diag.key": "Clave",
@@ -139,6 +146,13 @@ const I18N = {
     "btn.exportSvg": "Export SVG",
     "export.png": "Save the diagram as a PNG image",
     "export.svg": "Save the diagram as SVG (vector)",
+    "btn.report": "Export report",
+    "report.hint": "Save an HTML report (printable to PDF)",
+    "report.title": "Comparison report",
+    "report.generated": "Generated",
+    "report.objects": "Objects with differences",
+    "report.script": "Synchronization script",
+    "report.noChanges": "No differences found.",
     "diag.field": "Field",
     "diag.type": "Data type",
     "diag.key": "Key",
@@ -965,6 +979,99 @@ async function exportDiagramPng() {
 
 document.getElementById("export-png").addEventListener("click", exportDiagramPng);
 document.getElementById("export-svg").addEventListener("click", exportDiagramSvg);
+
+// ===========================================================================
+// Exportar informe de diferencias (HTML autónomo, imprimible a PDF)
+// ===========================================================================
+const REPORT_CSS = `
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2933;background:#f1f5f9;padding:32px;line-height:1.45}
+header,section.summary,h2,.obj,pre.script,.empty,footer{max-width:900px;margin-left:auto;margin-right:auto}
+h1{margin:0;font-size:26px;letter-spacing:-.5px}
+.sub{margin:2px 0 10px;color:#475569;font-size:15px}
+.meta{margin:2px 0;color:#64748b;font-size:13px}
+section.summary{margin-top:0;margin-bottom:24px;display:flex;gap:12px;flex-wrap:wrap}
+.summary .s{flex:1;min-width:120px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}
+.summary .n{font-size:24px;font-weight:700}
+.summary .l{font-size:12px;color:#64748b}
+.s-only_in_left .n{color:#0f766e}.s-only_in_right .n{color:#0369a1}.s-different .n{color:#b45309}.s-equal .n{color:#64748b}
+h2{margin-top:26px;margin-bottom:12px;font-size:16px;color:#334155;border-bottom:1px solid #e2e8f0;padding-bottom:6px}
+.obj{margin-bottom:10px;background:#fff;border:1px solid #e2e8f0;border-left-width:4px;border-radius:8px;padding:10px 14px}
+.obj.st-only_in_left{border-left-color:#14b8a6}.obj.st-only_in_right{border-left-color:#38bdf8}.obj.st-different{border-left-color:#f59e0b}
+.oh{display:flex;align-items:center;gap:10px}
+.ot{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8}
+.on{font-weight:600;font-size:15px}
+.ob{margin-left:auto;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px}
+.b-only_in_left{background:#ccfbf1;color:#0f766e}.b-only_in_right{background:#e0f2fe;color:#0369a1}.b-different{background:#fef3c7;color:#92400e}
+table.det{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
+table.det th{text-align:left;color:#64748b;font-weight:600;padding:4px 8px;border-bottom:1px solid #e2e8f0;font-size:12px}
+table.det td{padding:4px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+pre.script{background:#0f172a;color:#e2e8f0;padding:16px;border-radius:10px;overflow:auto;font-size:12.5px;line-height:1.5;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.empty{color:#64748b}
+footer{margin-top:30px;color:#94a3b8;font-size:12px;text-align:center}
+@media print{body{background:#fff;padding:0}.obj,.summary .s{break-inside:avoid}pre.script{background:#f8fafc;color:#0f172a;border:1px solid #e2e8f0}}
+`;
+
+/** Arma un informe HTML autónomo con el resumen, las diferencias y el script. */
+function buildReportHtml() {
+  const dbs = (document.getElementById("phase-dbs")?.textContent || "").trim();
+  const now = new Date().toLocaleString(lang === "en" ? "en-US" : "es-ES");
+
+  const counts = { only_in_left: 0, only_in_right: 0, different: 0, equal: 0 };
+  for (const o of lastObjects) counts[o.status]++;
+  const summary = Object.keys(STATUS)
+    .map((k) => `<div class="s s-${k}"><div class="n">${counts[k]}</div><div class="l">${esc(t("status." + k))}</div></div>`)
+    .join("");
+
+  const changed = lastObjects.filter((o) => o.status !== "equal");
+  const objs = changed
+    .map((o) => {
+      const det =
+        o.details && o.details.length
+          ? `<table class="det"><thead><tr><th>${esc(t("detail.field"))}</th><th>${esc(t("detail.a"))}</th><th>${esc(t("detail.b"))}</th></tr></thead><tbody>` +
+            o.details.map((d) => `<tr><td>${esc(d.field)}</td><td>${esc(d.left ?? "—")}</td><td>${esc(d.right ?? "—")}</td></tr>`).join("") +
+            `</tbody></table>`
+          : "";
+      return (
+        `<div class="obj st-${o.status}"><div class="oh">` +
+        `<span class="ot">${esc(typeLabel(o.object_type))}</span>` +
+        `<span class="on">${esc(o.name)}</span>` +
+        `<span class="ob b-${o.status}">${esc(t("status." + o.status))}</span>` +
+        `</div>${det}</div>`
+      );
+    })
+    .join("");
+
+  const script = lastScript && lastScript.trim() ? esc(lastScript) : esc(t("script.none"));
+
+  return (
+    `<!doctype html><html lang="${lang}"><head><meta charset="utf-8">` +
+    `<title>DataDiff — ${esc(t("report.title"))}</title><style>${REPORT_CSS}</style></head><body>` +
+    `<header><h1>DataDiff</h1><p class="sub">${esc(t("report.title"))}</p>` +
+    (dbs ? `<p class="meta">${esc(dbs)}</p>` : "") +
+    `<p class="meta">${esc(t("report.generated"))}: ${esc(now)}</p></header>` +
+    `<section class="summary">${summary}</section>` +
+    `<h2>${esc(t("report.objects"))}</h2>` +
+    (changed.length ? objs : `<p class="empty">${esc(t("report.noChanges"))}</p>`) +
+    `<h2>${esc(t("report.script"))}</h2><pre class="script">${script}</pre>` +
+    `<footer>DataDiff · github.com/marlontaro/DataDiff</footer>` +
+    `</body></html>`
+  );
+}
+
+async function exportReport() {
+  errorBanner.hidden = true;
+  if (!lastObjects || !lastObjects.length) return;
+  try {
+    const html = buildReportHtml();
+    const path = await saveFileDialog(t("btn.report"), "informe-datadiff.html", "HTML", "html");
+    if (path) await invoke("save_text_file", { path, content: html });
+  } catch (e) {
+    showError(e);
+  }
+}
+
+document.getElementById("export-report").addEventListener("click", exportReport);
 
 // ===========================================================================
 // Render de resultados
