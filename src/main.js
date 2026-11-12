@@ -94,6 +94,7 @@ const I18N = {
     "data.opUpdate": "Cambiada",
     "data.opDelete": "Sobrante",
     "data.gridMore": "Mostrando {0} de {1} filas con diferencias (el DML completo está abajo).",
+    "data.wasLabel": "antes",
     "data.info": "DML para dejar los datos de B iguales que A · revísalo antes de ejecutarlo.",
     "data.none": "-- Sin diferencias de datos.",
     "data.noTables": "No hay tablas en ambas bases.",
@@ -238,6 +239,7 @@ const I18N = {
     "data.opUpdate": "Changed",
     "data.opDelete": "Extra",
     "data.gridMore": "Showing {0} of {1} differing rows (full DML below).",
+    "data.wasLabel": "was",
     "data.info": "DML to make B's data match A · review it before running.",
     "data.none": "-- No data differences.",
     "data.noTables": "No tables in both databases.",
@@ -1553,8 +1555,16 @@ function renderDataGrid(cmp) {
     sample
       .map((r) => {
         const badge = opBadge[r.op] || "equal";
+        const old = r.op === "update" ? r.old_cells || null : null;
         const cells = (r.cells || [])
-          .map((v) => `<td>${v === null || v === undefined ? '<span class="null">NULL</span>' : esc(v)}</td>`)
+          .map((v, i) => {
+            const val = v === null || v === undefined ? '<span class="null">NULL</span>' : esc(v);
+            const changed = old && (old[i] ?? null) !== (v ?? null);
+            if (!changed) return `<td>${val}</td>`;
+            const ov = old[i];
+            const oldTxt = ov === null || ov === undefined ? "NULL" : String(ov);
+            return `<td class="changed" title="${esc(t("data.wasLabel"))}: ${esc(oldTxt)}">${val}</td>`;
+          })
           .join("");
         return `<tr><td class="op-col"><span class="badge ${badge}"><span class="dot"></span>${esc(t(opKey[r.op] || ""))}</span></td>${cells}</tr>`;
       })

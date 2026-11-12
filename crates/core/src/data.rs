@@ -55,7 +55,11 @@ pub struct SampleRow {
     /// "insert" (solo en A), "update" (distinta) o "delete" (solo en B).
     pub op: String,
     /// Valores de la fila en el orden de `columns` (texto o `None` = NULL).
+    /// Para "insert"/"update" son los de A; para "delete", los de B.
     pub cells: Vec<Option<String>>,
+    /// Solo en "update": los valores ACTUALES de B (para resaltar qué cambió).
+    #[serde(default)]
+    pub old_cells: Option<Vec<Option<String>>>,
 }
 
 /// Cuántas filas de diferencia se incluyen en la muestra (para no cargar miles).
@@ -238,7 +242,7 @@ pub fn compare_table_data(left: &DataTable, right: &DataTable, d: Dialect) -> Da
                 out.only_in_left += 1;
                 let _ = writeln!(inserts, "{}", insert_stmt(d, left, lrow));
                 if out.sample.len() < SAMPLE_CAP {
-                    out.sample.push(SampleRow { op: "insert".into(), cells: lrow.clone() });
+                    out.sample.push(SampleRow { op: "insert".into(), cells: lrow.clone(), old_cells: None });
                 }
             }
             Some(rrow) => {
@@ -246,7 +250,13 @@ pub fn compare_table_data(left: &DataTable, right: &DataTable, d: Dialect) -> Da
                     out.different += 1;
                     let _ = writeln!(updates, "{}", update_stmt(d, left, lrow, &lpk));
                     if out.sample.len() < SAMPLE_CAP {
-                        out.sample.push(SampleRow { op: "update".into(), cells: lrow.clone() });
+                        // Valores actuales de B, reordenados al orden de columnas de A.
+                        let old = left
+                            .columns
+                            .iter()
+                            .map(|c| ridx.get(c.name.as_str()).and_then(|&j| rrow.get(j).cloned().flatten()))
+                            .collect();
+                        out.sample.push(SampleRow { op: "update".into(), cells: lrow.clone(), old_cells: Some(old) });
                     }
                 } else {
                     out.equal += 1;
@@ -268,7 +278,7 @@ pub fn compare_table_data(left: &DataTable, right: &DataTable, d: Dialect) -> Da
                     .iter()
                     .map(|c| ridx.get(c.name.as_str()).and_then(|&j| rrow.get(j).cloned().flatten()))
                     .collect();
-                out.sample.push(SampleRow { op: "delete".into(), cells });
+                out.sample.push(SampleRow { op: "delete".into(), cells, old_cells: None });
             }
         }
     }
@@ -398,6 +408,10 @@ mod tests {
         // La fila de borrado viene de B (id=3, Caro), reordenada al orden de A.
         let del = c.sample.iter().find(|s| s.op == "delete").unwrap();
         assert_eq!(del.cells, vec![Some("3".to_string()), Some("Caro".to_string())]);
+        // La fila "update" trae los valores de A y los PREVIOS de B (para resaltar).
+        let upd = c.sample.iter().find(|s| s.op == "update").unwrap();
+        assert_eq!(upd.cells, vec![Some("2".to_string()), Some("Beto".to_string())]);
+        assert_eq!(upd.old_cells, Some(vec![Some("2".to_string()), Some("Beto cambiado".to_string())]));
     }
 
     #[test]
