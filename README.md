@@ -4,6 +4,7 @@
 > Una alternativa open source a **SSDT Schema Compare**, hecha con **Rust + Tauri**.
 
 [![CI](https://github.com/marlontaro/DataDiff/actions/workflows/ci.yml/badge.svg)](https://github.com/marlontaro/DataDiff/actions/workflows/ci.yml)
+[![Última versión](https://img.shields.io/github/v/release/marlontaro/DataDiff?label=versi%C3%B3n&color=blue)](https://github.com/marlontaro/DataDiff/releases/latest)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?logo=tauri&logoColor=white)
