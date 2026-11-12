@@ -53,6 +53,7 @@ const I18N = {
     "opt.fks": "Claves foráneas",
     "opt.checks": "Restricciones CHECK",
     "opt.pks": "Claves primarias",
+    "opt.triggers": "Disparadores",
     "step.connection": "Conexión",
     "step.comparison": "Comparación",
     "btn.back": "← Conexión",
@@ -111,6 +112,7 @@ const I18N = {
     "type.index": "Índice",
     "type.foreign_key": "Clave foránea",
     "type.check": "Restricción",
+    "type.trigger": "Disparador",
     "err.noBackend": "Sin backend: abre la app con cargo run o npm run tauri dev (en un navegador normal no hay conexión a las bases).",
   },
   en: {
@@ -157,6 +159,7 @@ const I18N = {
     "opt.fks": "Foreign keys",
     "opt.checks": "CHECK constraints",
     "opt.pks": "Primary keys",
+    "opt.triggers": "Triggers",
     "step.connection": "Connection",
     "step.comparison": "Comparison",
     "btn.back": "← Connection",
@@ -215,6 +218,7 @@ const I18N = {
     "type.index": "Index",
     "type.foreign_key": "Foreign key",
     "type.check": "Constraint",
+    "type.trigger": "Trigger",
     "err.noBackend": "No backend: open the app with cargo run or npm run tauri dev (a plain browser has no database connection).",
   },
 };
@@ -309,6 +313,7 @@ const ICON = {
   primary_key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="15" r="4"/><path d="m10.6 12.4 7.4-7.4M15 8l2 2 2-2"/></svg>',
   foreign_key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>',
+  trigger: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>',
 };
 
 // El backend manda el tipo en español; lo mapeamos a una clave estable.
@@ -321,6 +326,7 @@ const TYPE_KEY = {
   "Clave primaria": "primary_key",
   "Clave foránea": "foreign_key",
   "Restricción": "check",
+  "Disparador": "trigger",
 };
 const typeKey = (ot) => TYPE_KEY[ot] || "table";
 const objIcon = (ot) => ICON[typeKey(ot)] || ICON.table;
@@ -351,7 +357,7 @@ let searchText = "";
 // Opciones de comparación (persistidas); los nombres coinciden con Rust CompareOptions.
 const DEFAULT_OPTIONS = {
   ignore_case: true, ignore_whitespace: true, ignore_comments: false, ignore_column_default: false,
-  tables: true, views: true, procedures: true, functions: true, indexes: true, foreign_keys: true, checks: true, primary_keys: true,
+  tables: true, views: true, procedures: true, functions: true, indexes: true, foreign_keys: true, checks: true, primary_keys: true, triggers: true,
 };
 let compareOptions = (() => {
   try {

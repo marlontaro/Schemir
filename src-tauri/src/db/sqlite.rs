@@ -4,7 +4,7 @@
 //! así que esas listas quedan vacías. Sí tiene tablas y vistas.
 //! Abrimos el archivo en modo SOLO LECTURA: nunca creamos ni modificamos nada.
 
-use datadiff_core::{Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table};
+use datadiff_core::{Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
 use rusqlite::{Connection, OpenFlags};
 
 use super::DbResult;
@@ -52,6 +52,7 @@ pub fn read_schema(path: &str) -> DbResult<Schema> {
         foreign_keys,
         indexes,
         checks: Vec::new(), // SQLite guarda los CHECK dentro del DDL de la tabla
+        triggers: read_triggers(&conn)?,
         tables,
     })
 }
@@ -220,4 +221,53 @@ fn read_views(conn: &Connection) -> DbResult<Vec<Routine>> {
         })?
         .collect::<Result<_, _>>()?;
     Ok(views)
+}
+
+fn read_triggers(conn: &Connection) -> DbResult<Vec<Trigger>> {
+    let mut stmt = conn.prepare(
+        "SELECT name, tbl_name, COALESCE(sql, '') AS definition FROM sqlite_master \
+         WHERE type = 'trigger' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    )?;
+    let triggers = stmt
+        .query_map([], |row| {
+            let name: String = row.get("name")?;
+            let tbl: String = row.get("tbl_name")?;
+            Ok(Trigger {
+                schema: "main".to_string(),
+                name,
+                table: format!("main.{tbl}"),
+                definition: row.get("definition")?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(triggers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lee_disparadores_de_sqlite() {
+        // Crea una base temporal con un trigger y confirma que read_schema lo lee.
+        let path = std::env::temp_dir().join(format!("datadiff_trg_{}.db", std::process::id()));
+        let p = path.to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&p);
+        {
+            let conn = Connection::open(&p).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE t(id INTEGER PRIMARY KEY, n TEXT);\
+                 CREATE TABLE log(msg TEXT);\
+                 CREATE TRIGGER trg_ins AFTER INSERT ON t BEGIN INSERT INTO log(msg) VALUES('x'); END;",
+            )
+            .unwrap();
+        }
+        let schema = read_schema(&p).unwrap();
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(schema.triggers.len(), 1, "debe leer 1 disparador");
+        let tr = &schema.triggers[0];
+        assert_eq!(tr.name, "trg_ins");
+        assert_eq!(tr.table, "main.t");
+        assert!(tr.definition.to_uppercase().contains("CREATE TRIGGER"), "def: {}", tr.definition);
+    }
 }

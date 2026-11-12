@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
 use crate::diff::{columns_equal, normalize_def, CompareOptions, DiffStatus};
-use crate::model::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table};
+use crate::model::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
 
 /// Dialecto SQL del destino (determina el entrecomillado y la sintaxis).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +185,28 @@ fn routine_units(d: Dialect, label: &str, source: &[Routine], target: &[Routine]
     }
 }
 
+/// Genera una unidad por disparador (trigger) que cambia.
+fn trigger_units(d: Dialect, source: &[Trigger], target: &[Trigger], o: &CompareOptions, units: &mut Vec<ScriptUnit>) {
+    use DiffStatus::*;
+    const SECTION: &str = "Disparadores";
+    let src: BTreeMap<String, &Trigger> = source.iter().map(|t| (t.key(), t)).collect();
+    let tgt: BTreeMap<String, &Trigger> = target.iter().map(|t| (t.key(), t)).collect();
+    for (k, t) in &src {
+        match tgt.get(k) {
+            None => units.push(ScriptUnit::new("Disparador", k.clone(), OnlyInLeft, SECTION, create_trigger(d, t))),
+            Some(tt) if normalize_def(&t.definition, o) != normalize_def(&tt.definition, o) => {
+                units.push(ScriptUnit::new("Disparador", k.clone(), Different, SECTION, format!("{}\n{}", drop_trigger(d, tt), create_trigger(d, t))));
+            }
+            _ => {}
+        }
+    }
+    for (k, tt) in &tgt {
+        if !src.contains_key(k) {
+            units.push(ScriptUnit::new("Disparador", k.clone(), OnlyInRight, SECTION, drop_trigger(d, tt)));
+        }
+    }
+}
+
 /// Separa un nombre calificado "schema.tabla" en sus dos partes.
 fn split_qualified(qn: &str) -> (&str, &str) {
     qn.split_once('.').unwrap_or(("", qn))
@@ -248,6 +270,25 @@ fn add_check(d: Dialect, chk: &CheckConstraint) -> String {
 fn drop_check(d: Dialect, chk: &CheckConstraint) -> String {
     let (s, t) = split_qualified(&chk.table);
     format!("ALTER TABLE {} DROP CONSTRAINT {};", d.qname(s, t), d.quote(&chk.name))
+}
+
+fn create_trigger(d: Dialect, tr: &Trigger) -> String {
+    // La definición almacenada ya es el CREATE TRIGGER completo.
+    let body = tr.definition.trim();
+    match d {
+        Dialect::SqlServer => format!("{body}\nGO"),
+        Dialect::Sqlite | Dialect::Postgres => format!("{};", body.trim_end_matches(';')),
+    }
+}
+
+fn drop_trigger(d: Dialect, tr: &Trigger) -> String {
+    let (ts, tt) = split_qualified(&tr.table);
+    match d {
+        // PostgreSQL exige indicar la tabla; los demás no.
+        Dialect::Postgres => format!("DROP TRIGGER IF EXISTS {} ON {};", d.quote(&tr.name), d.qname(ts, tt)),
+        Dialect::SqlServer => format!("DROP TRIGGER IF EXISTS {};\nGO", d.qname(&tr.schema, &tr.name)),
+        Dialect::Sqlite => format!("DROP TRIGGER IF EXISTS {};", d.quote(&tr.name)),
+    }
 }
 
 fn index_key(i: &Index) -> String {
@@ -394,6 +435,11 @@ pub fn generate_sync_units_opts(source: &Schema, target: &Schema, d: Dialect, o:
     }
     if o.functions {
         routine_units(d, "Función", &source.functions, &target.functions, o, &mut units);
+    }
+
+    // ── Disparadores ──
+    if o.triggers {
+        trigger_units(d, &source.triggers, &target.triggers, o, &mut units);
     }
 
     // ── Tablas eliminadas en el destino ──
@@ -586,5 +632,26 @@ mod tests {
         let s = generate_sync_script(&a, &b, Dialect::SqlServer);
         assert!(s.contains("CREATE TABLE [dbo].[Nueva]"), "{s}");
         assert!(s.contains("DROP TABLE IF EXISTS [dbo].[Vieja]"), "{s}");
+    }
+
+    #[test]
+    fn script_crea_y_dropea_trigger() {
+        use crate::model::Trigger;
+        let trg = Trigger {
+            schema: "main".into(),
+            name: "trg_x".into(),
+            table: "main.t".into(),
+            definition: "CREATE TRIGGER trg_x AFTER INSERT ON t BEGIN SELECT 1; END".into(),
+        };
+        let a = Schema { triggers: vec![trg.clone()], ..Default::default() };
+        // Crear (solo en A).
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::Sqlite);
+        assert!(s.contains("CREATE TRIGGER trg_x"), "{s}");
+        // Dropear en SQLite (solo en B): sin la tabla.
+        let s2 = generate_sync_script(&Schema::default(), &a, Dialect::Sqlite);
+        assert!(s2.contains("DROP TRIGGER IF EXISTS \"trg_x\";"), "{s2}");
+        // Dropear en PostgreSQL: con la tabla (ON …).
+        let s3 = generate_sync_script(&Schema::default(), &a, Dialect::Postgres);
+        assert!(s3.contains("DROP TRIGGER IF EXISTS \"trg_x\" ON \"main\".\"t\";"), "{s3}");
     }
 }

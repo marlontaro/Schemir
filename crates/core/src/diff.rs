@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{CheckConstraint, Column, ForeignKey, Index, Routine, Schema, Table};
+use crate::model::{CheckConstraint, Column, ForeignKey, Index, Routine, Schema, Table, Trigger};
 
 /// Estado de un objeto al comparar los dos esquemas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +96,7 @@ pub struct CompareOptions {
     pub foreign_keys: bool,
     pub checks: bool,
     pub primary_keys: bool,
+    pub triggers: bool,
 }
 
 impl Default for CompareOptions {
@@ -113,6 +114,7 @@ impl Default for CompareOptions {
             foreign_keys: true,
             checks: true,
             primary_keys: true,
+            triggers: true,
         }
     }
 }
@@ -149,6 +151,9 @@ pub fn compare_schemas_opts(left: &Schema, right: &Schema, o: &CompareOptions) -
     }
     if o.checks {
         diff_checks(&left.checks, &right.checks, o, &mut objects);
+    }
+    if o.triggers {
+        diff_triggers(&left.triggers, &right.triggers, o, &mut objects);
     }
 
     // Orden estable y predecible: primero por tipo, luego por nombre.
@@ -364,6 +369,26 @@ fn diff_checks(left: &[CheckConstraint], right: &[CheckConstraint], o: &CompareO
                 let details = if same { vec![] } else { vec![FieldDiff { field: "definición".into(), left: Some(l.definition.clone()), right: Some(r.definition.clone()) }] };
                 let status = if same { DiffStatus::Equal } else { DiffStatus::Different };
                 ObjectDiff { object_type: "Restricción".into(), name, status, details }
+            }
+            (None, None) => unreachable!(),
+        };
+        out.push(diff);
+    }
+}
+
+/// Compara disparadores por tabla + nombre; "iguales" si su definición coincide.
+fn diff_triggers(left: &[Trigger], right: &[Trigger], o: &CompareOptions, out: &mut Vec<ObjectDiff>) {
+    let lm: BTreeMap<String, &Trigger> = left.iter().map(|t| (t.key(), t)).collect();
+    let rm: BTreeMap<String, &Trigger> = right.iter().map(|t| (t.key(), t)).collect();
+    for name in union_keys(&lm, &rm) {
+        let diff = match (lm.get(&name), rm.get(&name)) {
+            (Some(_), None) => ObjectDiff { object_type: "Disparador".into(), name, status: DiffStatus::OnlyInLeft, details: vec![] },
+            (None, Some(_)) => ObjectDiff { object_type: "Disparador".into(), name, status: DiffStatus::OnlyInRight, details: vec![] },
+            (Some(l), Some(r)) => {
+                let same = normalize_def(&l.definition, o) == normalize_def(&r.definition, o);
+                let details = if same { vec![] } else { vec![FieldDiff { field: "definición".into(), left: Some(l.definition.clone()), right: Some(r.definition.clone()) }] };
+                let status = if same { DiffStatus::Equal } else { DiffStatus::Different };
+                ObjectDiff { object_type: "Disparador".into(), name, status, details }
             }
             (None, None) => unreachable!(),
         };
@@ -607,5 +632,26 @@ mod tests {
         let o = CompareOptions { tables: false, ..Default::default() };
         let r = compare_schemas_opts(&left, &Schema::default(), &o);
         assert!(r.objects.iter().all(|x| x.object_type != "Tabla"));
+    }
+
+    #[test]
+    fn disparador_solo_en_izquierda_y_distinto() {
+        use crate::model::Trigger;
+        let trg = |body: &str| Trigger {
+            schema: "main".into(),
+            name: "trg_x".into(),
+            table: "main.t".into(),
+            definition: body.into(),
+        };
+        // Solo en A → OnlyInLeft, con la clave tabla.nombre.
+        let left = Schema { triggers: vec![trg("CREATE TRIGGER trg_x ...")], ..Default::default() };
+        let r = compare_schemas(&left, &Schema::default());
+        let d = r.objects.iter().find(|o| o.object_type == "Disparador").unwrap();
+        assert_eq!(d.status, DiffStatus::OnlyInLeft);
+        assert_eq!(d.name, "main.t.trg_x");
+        // Definición distinta → Different.
+        let a = Schema { triggers: vec![trg("CREATE TRIGGER trg_x BEGIN SELECT 1; END")], ..Default::default() };
+        let b = Schema { triggers: vec![trg("CREATE TRIGGER trg_x BEGIN SELECT 2; END")], ..Default::default() };
+        assert_eq!(compare_schemas(&a, &b).objects[0].status, DiffStatus::Different);
     }
 }

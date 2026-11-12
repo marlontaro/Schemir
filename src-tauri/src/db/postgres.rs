@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use datadiff_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table};
+use datadiff_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use tokio_postgres::{Client, Config};
@@ -57,6 +57,7 @@ pub async fn read_schema(cfg: &ConnectionConfig) -> DbResult<Schema> {
     let foreign_keys = read_foreign_keys(&client).await?;
     let indexes = read_indexes(&client).await?;
     let checks = read_checks(&client).await?;
+    let triggers = read_triggers(&client).await?;
     Ok(Schema {
         engine_label: format!("PostgreSQL · {}", cfg.database),
         tables,
@@ -66,6 +67,7 @@ pub async fn read_schema(cfg: &ConnectionConfig) -> DbResult<Schema> {
         foreign_keys,
         indexes,
         checks,
+        triggers,
     })
 }
 
@@ -255,6 +257,31 @@ async fn read_checks(client: &Client) -> DbResult<Vec<CheckConstraint>> {
         let table: String = row.get("table_name");
         out.push(CheckConstraint {
             name: row.get("check_name"),
+            table: format!("{schema}.{table}"),
+            definition: row.get("definition"),
+        });
+    }
+    Ok(out)
+}
+
+const TRIGGER_SQL: &str = "\
+SELECT ns.nspname AS schema_name, cl.relname AS table_name, tg.tgname AS trigger_name,
+       pg_get_triggerdef(tg.oid) AS definition
+FROM pg_trigger tg
+JOIN pg_class cl ON cl.oid = tg.tgrelid
+JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+WHERE NOT tg.tgisinternal AND ns.nspname NOT IN ('pg_catalog','information_schema')
+ORDER BY ns.nspname, cl.relname, tg.tgname";
+
+async fn read_triggers(client: &Client) -> DbResult<Vec<Trigger>> {
+    let rows = client.query(TRIGGER_SQL, &[]).await?;
+    let mut out = Vec::new();
+    for row in &rows {
+        let schema: String = row.get("schema_name");
+        let table: String = row.get("table_name");
+        out.push(Trigger {
+            schema: schema.clone(),
+            name: row.get("trigger_name"),
             table: format!("{schema}.{table}"),
             definition: row.get("definition"),
         });

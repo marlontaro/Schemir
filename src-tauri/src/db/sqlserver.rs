@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use datadiff_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table};
+use datadiff_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
 use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
@@ -55,6 +55,7 @@ pub async fn read_schema(cfg: &ConnectionConfig) -> DbResult<Schema> {
     let foreign_keys = read_foreign_keys(&mut client).await?;
     let indexes = read_indexes(&mut client).await?;
     let checks = read_checks(&mut client).await?;
+    let triggers = read_triggers(&mut client).await?;
     Ok(Schema {
         engine_label: format!("SQL Server · {}", cfg.database),
         tables,
@@ -64,6 +65,7 @@ pub async fn read_schema(cfg: &ConnectionConfig) -> DbResult<Schema> {
         foreign_keys,
         indexes,
         checks,
+        triggers,
     })
 }
 
@@ -347,6 +349,29 @@ async fn read_checks(client: &mut SqlClient) -> DbResult<Vec<CheckConstraint>> {
         let n: &str = row.get("check_name").unwrap_or("");
         let d: &str = row.get("definition").unwrap_or("");
         out.push(CheckConstraint { name: n.to_string(), table: format!("{s}.{t}"), definition: d.to_string() });
+    }
+    Ok(out)
+}
+
+const TRIGGER_SQL: &str = "\
+SELECT s.name AS schema_name, t.name AS table_name, tr.name AS trigger_name, m.definition AS definition
+FROM sys.triggers tr
+JOIN sys.tables   t ON t.object_id = tr.parent_id
+JOIN sys.schemas  s ON s.schema_id = t.schema_id
+LEFT JOIN sys.sql_modules m ON m.object_id = tr.object_id
+WHERE tr.is_ms_shipped = 0
+ORDER BY s.name, t.name, tr.name";
+
+/// Lee los disparadores (triggers) DML sobre tablas.
+async fn read_triggers(client: &mut SqlClient) -> DbResult<Vec<Trigger>> {
+    let rows = client.query(TRIGGER_SQL, &[]).await?.into_first_result().await?;
+    let mut out = Vec::new();
+    for row in rows {
+        let s: &str = row.get("schema_name").unwrap_or("");
+        let t: &str = row.get("table_name").unwrap_or("");
+        let n: &str = row.get("trigger_name").unwrap_or("");
+        let d: &str = row.get("definition").unwrap_or("");
+        out.push(Trigger { schema: s.to_string(), name: n.to_string(), table: format!("{s}.{t}"), definition: d.to_string() });
     }
     Ok(out)
 }

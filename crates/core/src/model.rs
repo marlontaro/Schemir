@@ -32,6 +32,9 @@ pub struct Schema {
     /// Restricciones CHECK.
     #[serde(default)]
     pub checks: Vec<CheckConstraint>,
+    /// Disparadores (triggers).
+    #[serde(default)]
+    pub triggers: Vec<Trigger>,
 }
 
 /// Una tabla con sus columnas.
@@ -95,6 +98,24 @@ pub struct CheckConstraint {
     pub table: String,
     /// Expresión de la restricción.
     pub definition: String,
+}
+
+/// Un disparador (trigger) asociado a una tabla.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Trigger {
+    pub schema: String,
+    pub name: String,
+    /// Tabla a la que pertenece, calificada ("schema.tabla").
+    pub table: String,
+    /// Cuerpo SQL completo (CREATE TRIGGER …) tal como lo da el catálogo.
+    pub definition: String,
+}
+
+impl Trigger {
+    /// Clave única para emparejar: "schema.tabla.disparador".
+    pub fn key(&self) -> String {
+        format!("{}.{}", self.table, self.name)
+    }
 }
 
 /// Objeto cuyo cuerpo es código SQL: vistas, procedimientos y funciones.
