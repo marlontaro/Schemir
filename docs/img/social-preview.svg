@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" font-family="'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A1120"/>
+      <stop offset="1" stop-color="#0D1A30"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#38BDF8"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#22D3EE" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#3B82F6" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#3B82F6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <circle cx="1180" cy="70" r="440" fill="url(#glow1)"/>
+  <circle cx="110" cy="610" r="400" fill="url(#glow2)"/>
+  <rect x="0.5" y="0.5" width="1279" height="639" fill="none" stroke="#1C2A44" stroke-width="1"/>
+
+  <!-- LEFT: brand -->
+  <text x="86" y="140" font-size="18" font-weight="700" letter-spacing="3.5" fill="#5FD0E6">SCHEMA + MIRROR · OPEN SOURCE</text>
+  <text x="82" y="264" font-size="112" font-weight="800" letter-spacing="-3" fill="#F2F7FD">Schemir</text>
+  <rect x="88" y="286" width="172" height="7" rx="3.5" fill="url(#accent)"/>
+  <text x="88" y="352" font-size="35" font-weight="600" fill="#D7E2F2">Compare database schema &amp; data</text>
+  <text x="88" y="391" font-size="21" font-weight="400" fill="#93A6C3">A free, cross-platform alternative to SSDT Schema Compare</text>
+
+  <!-- engine pills -->
+  <g font-size="19" font-weight="600">
+    <rect x="88" y="432" width="166" height="46" rx="23" fill="#13223C" stroke="#28395A"/>
+    <circle cx="116" cy="455" r="5.5" fill="#CC2927"/>
+    <text x="131" y="461" fill="#C8D4E8">SQL Server</text>
+    <rect x="266" y="432" width="176" height="46" rx="23" fill="#13223C" stroke="#28395A"/>
+    <circle cx="294" cy="455" r="5.5" fill="#4C8CC0"/>
+    <text x="309" y="461" fill="#C8D4E8">PostgreSQL</text>
+    <rect x="454" y="432" width="128" height="46" rx="23" fill="#13223C" stroke="#28395A"/>
+    <circle cx="482" cy="455" r="5.5" fill="#1AA7E8"/>
+    <text x="497" y="461" fill="#C8D4E8">SQLite</text>
+  </g>
+
+  <text x="88" y="588" font-size="18" fill="#6C7F9D">github.com/marlontaro/Schemir</text>
+  <text x="1192" y="588" text-anchor="end" font-size="18" fill="#6C7F9D">Rust + Tauri · MIT</text>
+
+  <!-- RIGHT: diff panel -->
+  <rect x="742" y="150" width="454" height="348" rx="20" fill="#101B30" stroke="#22314E" stroke-width="1.5"/>
+  <circle cx="774" cy="186" r="6.5" fill="#F85149"/>
+  <circle cx="796" cy="186" r="6.5" fill="#E3B341"/>
+  <circle cx="818" cy="186" r="6.5" fill="#3FB950"/>
+  <text x="1164" y="192" text-anchor="end" font-size="17" font-weight="600" fill="#93A6C3">A &#8594; B</text>
+  <line x1="762" y1="212" x2="1176" y2="212" stroke="#22314E" stroke-width="1.5"/>
+
+  <g font-family="Menlo, Consolas, monospace" font-size="21.5" xml:space="preserve">
+    <text x="774" y="256" fill="#56D364">+ CREATE TABLE   Customer</text>
+    <text x="774" y="300" fill="#E3B341">~ ALTER COLUMN   Order.email</text>
+    <text x="774" y="344" fill="#F85149">- DROP INDEX     ix_legacy</text>
+    <text x="774" y="388" fill="#6E819F">= Invoice        unchanged</text>
+  </g>
+
+  <line x1="762" y1="424" x2="1176" y2="424" stroke="#1C2A44" stroke-width="1.5"/>
+  <text x="774" y="462" font-size="17" fill="#7E92B0">12 objects · 3 differ</text>
+  <text x="1164" y="462" text-anchor="end" font-size="17" font-weight="600" fill="#38BDF8">sync script &#8594;</text>
+</svg>
