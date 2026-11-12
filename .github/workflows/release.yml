@@ -8,6 +8,11 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# tauri-action necesita permiso de escritura para crear el Release (borrador)
+# y subir los instaladores. Sin esto falla con "Resource not accessible".
+permissions:
+  contents: write
+
 jobs:
   bundle:
     name: Instalador (${{ matrix.os }})
