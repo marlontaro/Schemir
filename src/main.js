@@ -38,6 +38,10 @@ const I18N = {
     "btn.saveSql": "Guardar .sql",
     "status.testing": "Probando…",
     "compare.hint": "Prueba las conexiones de A y B para habilitar la comparación.",
+    "cmp.open": "Abrir comparación…",
+    "cmp.save": "Guardar comparación",
+    "cmp.loaded": "✓ Comparación cargada. Reconecta (contraseñas) y compara.",
+    "cmp.invalid": "El archivo no es una comparación de DataDiff válida.",
     "opt.title": "Opciones de comparación",
     "opt.ignore": "Ignorar",
     "opt.case": "Mayúsculas/minúsculas",
@@ -144,6 +148,10 @@ const I18N = {
     "btn.saveSql": "Save .sql",
     "status.testing": "Testing…",
     "compare.hint": "Test both A and B connections to enable the comparison.",
+    "cmp.open": "Open comparison…",
+    "cmp.save": "Save comparison",
+    "cmp.loaded": "✓ Comparison loaded. Reconnect (passwords) and compare.",
+    "cmp.invalid": "The file is not a valid DataDiff comparison.",
     "opt.title": "Comparison options",
     "opt.ignore": "Ignore",
     "opt.case": "Case",
@@ -502,6 +510,74 @@ function applyConnProfile(card, p) {
   }
   refreshCompareState();
 }
+
+// ===========================================================================
+// Guardar / abrir una comparación completa (conexiones + opciones, sin claves)
+// ===========================================================================
+async function pickFile(title, filters) {
+  const tauri = window.__TAURI__;
+  const options = { multiple: false, directory: false, title, filters };
+  let sel = tauri?.dialog?.open ? await tauri.dialog.open(options) : await invoke("plugin:dialog|open", { options });
+  if (Array.isArray(sel)) sel = sel[0];
+  if (sel && typeof sel === "object") sel = sel.path ?? null;
+  return sel || null;
+}
+
+/** Documento con la comparación actual (ambas conexiones SIN contraseña + opciones). */
+function currentComparisonDoc() {
+  const strip = (c) => ({ engine: c.engine, host: c.host, port: c.port, database: c.database, user: c.user, path: c.path });
+  return { datadiff: "comparison", version: 1, options: compareOptions, a: strip(readConfig("a")), b: strip(readConfig("b")) };
+}
+
+/** Aplica un documento de comparación a las tarjetas y a las opciones. */
+function applyComparisonDoc(doc) {
+  if (doc.a) applyConnProfile(document.querySelector('.card[data-side="a"]'), doc.a);
+  if (doc.b) applyConnProfile(document.querySelector('.card[data-side="b"]'), doc.b);
+  if (doc.options && typeof doc.options === "object") {
+    compareOptions = { ...DEFAULT_OPTIONS, ...doc.options };
+    try { localStorage.setItem("datadiff.options", JSON.stringify(compareOptions)); } catch {}
+    document.querySelectorAll("#cmp-options input[data-opt]").forEach((cb) => (cb.checked = !!compareOptions[cb.dataset.opt]));
+  }
+}
+
+async function saveComparison() {
+  errorBanner.hidden = true;
+  const st = document.getElementById("cmp-status");
+  if (st) { st.className = "conn-status"; st.textContent = ""; }
+  try {
+    const path = await saveFileDialog(t("cmp.save"), "comparacion.ddcmp", "DataDiff", "ddcmp");
+    if (path) await invoke("save_text_file", { path, content: JSON.stringify(currentComparisonDoc(), null, 2) });
+  } catch (e) {
+    showError(e);
+  }
+}
+
+async function openComparison() {
+  errorBanner.hidden = true;
+  const st = document.getElementById("cmp-status");
+  if (st) { st.className = "conn-status"; st.textContent = ""; }
+  try {
+    const path = await pickFile(t("cmp.open"), [
+      { name: "DataDiff", extensions: ["ddcmp", "json"] },
+      { name: "*", extensions: ["*"] },
+    ]);
+    if (!path) return;
+    const text = await invoke("read_text_file", { path });
+    let doc = null;
+    try { doc = JSON.parse(text); } catch {}
+    if (!doc || doc.datadiff !== "comparison" || (!doc.a && !doc.b)) {
+      if (st) { st.className = "conn-status fail"; st.textContent = "✗ " + t("cmp.invalid"); }
+      return;
+    }
+    applyComparisonDoc(doc);
+    if (st) { st.className = "conn-status ok"; st.textContent = t("cmp.loaded"); }
+  } catch (e) {
+    showError(e);
+  }
+}
+
+document.getElementById("save-cmp").addEventListener("click", saveComparison);
+document.getElementById("open-cmp").addEventListener("click", openComparison);
 
 // ===========================================================================
 // Probar conexión + habilitación de Comparar

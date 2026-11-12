@@ -74,6 +74,12 @@ async fn save_binary_file(path: String, data: Vec<u8>) -> Result<(), String> {
     std::fs::write(&path, data).map_err(|e| format!("No se pudo guardar el archivo: {e}"))
 }
 
+/// Lee un archivo de texto (lo usa "Abrir comparación").
+#[tauri::command]
+async fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("No se pudo leer el archivo: {e}"))
+}
+
 /// Aplica (ejecuta) el script de sincronización contra la base indicada.
 #[tauri::command]
 async fn apply_script(config: ConnectionConfig, script: String) -> Result<String, String> {
@@ -88,6 +94,7 @@ fn main() {
             test_connection,
             save_text_file,
             save_binary_file,
+            read_text_file,
             apply_script
         ])
         .run(tauri::generate_context!())
