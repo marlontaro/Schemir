@@ -30,13 +30,10 @@ _Última actualización: noviembre 2026._
 - **SQL Server y PostgreSQL contra servidores reales.** El código compila, pero el flujo
   completo solo se probó con SQLite (no había servidores disponibles al desarrollarlo).
   Las consultas a los catálogos pueden necesitar algún ajuste al conectar a una base real.
-- **El coloreado del diagrama de diferencias** aún no aplica las opciones de comparación
-  (la lista de diferencias y el script sí las respetan).
 
 ## 🔜 Próximo
 
 - **Más objetos:** secuencias, tipos definidos por usuario, permisos.
-- Que el **diagrama de diferencias** respete las opciones de comparación.
 
 ## 🚀 Funcionalidad grande
 

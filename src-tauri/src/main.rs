@@ -5,7 +5,7 @@ mod db;
 
 use datadiff_core::{
     compare_schemas_opts, generate_sync_script_opts, generate_sync_units_opts, to_diagram_model,
-    to_diff_diagram, CompareOptions, ComparisonResult, Dialect, DiagramModel, ScriptUnit,
+    to_diff_diagram_opts, CompareOptions, ComparisonResult, Dialect, DiagramModel, ScriptUnit,
 };
 use db::{ConnectionConfig, EngineKind};
 use serde::Serialize;
@@ -52,7 +52,7 @@ async fn compare_databases(
     let script_units = generate_sync_units_opts(&source, &target, dialect, &opts);
     let diagram_a = to_diagram_model(&source);
     let diagram_b = to_diagram_model(&target);
-    let diagram_diff = to_diff_diagram(&source, &target);
+    let diagram_diff = to_diff_diagram_opts(&source, &target, &opts);
     Ok(CompareOutput { comparison, script, script_units, diagram_a, diagram_b, diagram_diff })
 }
 

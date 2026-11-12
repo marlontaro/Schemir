@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::diff::{columns_equal, CompareOptions};
 use crate::model::{Column, ForeignKey, Schema, Table};
 
 /// Una columna tal como se muestra en el diagrama.
@@ -116,8 +117,10 @@ pub fn to_diagram_model(schema: &Schema) -> DiagramModel {
     DiagramModel { tables, relations }
 }
 
-/// ¿Difieren las columnas de dos tablas? (tipo, nulabilidad o valor por defecto).
-fn columns_differ(a: &Table, b: &Table) -> bool {
+/// ¿Difieren las columnas de dos tablas? Usa el MISMO criterio que la lista de
+/// diferencias (`columns_equal` con las opciones), para que el color del diagrama
+/// y el estado de la tabla en el diff siempre coincidan.
+fn tables_differ(a: &Table, b: &Table, o: &CompareOptions) -> bool {
     let am: BTreeMap<&str, &Column> = a.columns.iter().map(|c| (c.name.as_str(), c)).collect();
     let bm: BTreeMap<&str, &Column> = b.columns.iter().map(|c| (c.name.as_str(), c)).collect();
     if am.len() != bm.len() {
@@ -126,7 +129,7 @@ fn columns_differ(a: &Table, b: &Table) -> bool {
     for (name, ca) in &am {
         match bm.get(name) {
             Some(cb) => {
-                if ca.data_type != cb.data_type || ca.is_nullable != cb.is_nullable || ca.default_value != cb.default_value {
+                if !columns_equal(ca, cb, o) {
                     return true;
                 }
             }
@@ -136,9 +139,14 @@ fn columns_differ(a: &Table, b: &Table) -> bool {
     false
 }
 
-/// Diagrama de DIFERENCIAS: la unión de tablas de A y B, cada una marcada con su
-/// estado (only_in_left / only_in_right / different / equal).
+/// Diagrama de diferencias con las opciones por defecto.
 pub fn to_diff_diagram(source: &Schema, target: &Schema) -> DiagramModel {
+    to_diff_diagram_opts(source, target, &CompareOptions::default())
+}
+
+/// Diagrama de DIFERENCIAS: la unión de tablas de A y B, cada una marcada con su
+/// estado (only_in_left / only_in_right / different / equal), según las opciones.
+pub fn to_diff_diagram_opts(source: &Schema, target: &Schema, o: &CompareOptions) -> DiagramModel {
     let src: BTreeMap<String, &Table> = source.tables.iter().map(|t| (t.qualified_name(), t)).collect();
     let tgt: BTreeMap<String, &Table> = target.tables.iter().map(|t| (t.qualified_name(), t)).collect();
     let mut names: Vec<String> = src.keys().chain(tgt.keys()).cloned().collect();
@@ -151,7 +159,7 @@ pub fn to_diff_diagram(source: &Schema, target: &Schema) -> DiagramModel {
             (Some(&t), None) => ("only_in_left", t, source.foreign_keys.as_slice()),
             (None, Some(&t)) => ("only_in_right", t, target.foreign_keys.as_slice()),
             (Some(&a), Some(&b)) => {
-                let st = if columns_differ(a, b) { "different" } else { "equal" };
+                let st = if tables_differ(a, b, o) { "different" } else { "equal" };
                 (st, a, source.foreign_keys.as_slice())
             }
             (None, None) => unreachable!(),
@@ -230,5 +238,16 @@ mod tests {
         assert_eq!(st("dbo.Clientes"), "different");
         assert_eq!(st("dbo.SoloA"), "only_in_left");
         assert_eq!(st("dbo.SoloB"), "only_in_right");
+    }
+
+    #[test]
+    fn diff_diagram_respeta_opciones() {
+        // Mismo tipo salvo may/min: con ignore_case (por defecto) la tabla es
+        // "equal"; sin él, "different". Igual que en la lista de diferencias.
+        let a = Schema { tables: vec![Table { schema: "dbo".into(), name: "T".into(), columns: vec![col("id", "INT", false, 1)] }], ..Default::default() };
+        let b = Schema { tables: vec![Table { schema: "dbo".into(), name: "T".into(), columns: vec![col("id", "int", false, 1)] }], ..Default::default() };
+        assert_eq!(to_diff_diagram(&a, &b).tables[0].status, "equal");
+        let strict = CompareOptions { ignore_case: false, ..Default::default() };
+        assert_eq!(to_diff_diagram_opts(&a, &b, &strict).tables[0].status, "different");
     }
 }
