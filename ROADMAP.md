@@ -7,37 +7,42 @@ _Última actualización: noviembre 2026._
 
 - **Tres motores:** SQL Server (`tiberius`), PostgreSQL (`tokio-postgres`, con TLS) y SQLite (`rusqlite`).
 - **Comparación de objetos:** tablas, columnas, vistas, procedimientos, funciones,
-  claves primarias, claves foráneas, índices y restricciones CHECK.
+  claves primarias, claves foráneas, índices, restricciones CHECK y **disparadores (triggers)**.
 - **Multiesquema:** lee y compara todos los esquemas de la base.
-- **Script de sincronización** (`CREATE` / `ALTER` / `DROP`) por dialecto, incluyendo
-  índices, FK y CHECK. Con copiar y guardar `.sql`.
+- **Opciones de comparación** (estilo SSDT): ignorar mayúsculas/minúsculas, espacios,
+  comentarios y el valor por defecto de columnas, y elegir qué tipos de objeto comparar.
+- **Script de sincronización** (`CREATE` / `ALTER` / `DROP`) por dialecto, con
+  **sincronización selectiva** (marcar/desmarcar qué objetos entran). Copiar y guardar `.sql`.
+- **Aplicar al destino:** ejecutar el script (solo lo marcado) contra la base B desde la
+  app, con confirmación y en una transacción (verificado en SQLite).
 - **Diagrama ER** con renderizador propio (dagre): vista por esquema y **diagrama de
-  diferencias** a color (solo en A / solo en B / diferente / igual). Interactivo
-  (zoom, desplazamiento, arrastrar tablas, pantalla completa) y **exportable a PNG/SVG**.
+  diferencias** a color. Interactivo (zoom, desplazamiento, arrastrar, pantalla completa)
+  y **exportable a PNG/SVG**.
+- **Informe de diferencias** en HTML (imprimible a PDF) con resumen, detalle y script.
+- **Conexiones recientes:** recuerda las conexiones probadas (sin la contraseña).
 - **Interfaz por fases** (Conexión → Comparación), **bilingüe ES/EN** y con
   **tema claro / oscuro / sistema**.
-- **Aplicar al destino:** ejecutar el script contra la base B desde la app, con
-  confirmación y en una transacción (verificado en SQLite).
 - **Instalador para macOS** (`.dmg`) generado con `tauri build`.
-- **Núcleo probado:** 18 pruebas unitarias en `datadiff-core`.
+- **Pruebas:** 25 unitarias en `datadiff-core` + 1 de integración del lector SQLite.
 
 ## ⚠️ Pendiente de verificar
 
 - **SQL Server y PostgreSQL contra servidores reales.** El código compila, pero el flujo
   completo solo se probó con SQLite (no había servidores disponibles al desarrollarlo).
   Las consultas a los catálogos pueden necesitar algún ajuste al conectar a una base real.
+- **El coloreado del diagrama de diferencias** aún no aplica las opciones de comparación
+  (la lista de diferencias y el script sí las respetan).
 
 ## 🔜 Próximo
 
-- **Opciones de comparación:** ignorar comentarios, mayúsculas/minúsculas, orden de columnas…
-- **Más objetos:** triggers, secuencias, tipos definidos por usuario, permisos.
+- **Más objetos:** secuencias, tipos definidos por usuario, permisos.
+- Que el **diagrama de diferencias** respete las opciones de comparación.
 
 ## 🚀 Funcionalidad grande
 
 - **Comparar datos de filas** (no solo estructura), al estilo SQL Data Compare.
-- **Guardar / cargar una comparación** (como los `.scmp` de SSDT) y recordar conexiones recientes.
+- **Guardar / cargar una comparación** completa (como los `.scmp` de SSDT).
 - **Validación de CA en TLS** (hoy se confía en el certificado del servidor).
-- **Exportar un reporte de diferencias** (PDF/HTML) con el resumen y el script.
 - **Diseñador de diagramas ER:** crear y editar el modelo visualmente y exportarlo a
   SQL, Prisma, etc. (hoy el diagrama es de solo lectura).
 
