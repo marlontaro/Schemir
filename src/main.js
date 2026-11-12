@@ -15,6 +15,24 @@ const I18N = {
     "theme.light": "Claro",
     "theme.dark": "Oscuro",
     "theme.system": "Sistema",
+    "mode.compare": "Comparar",
+    "mode.design": "Diseñar",
+    "dz.addTable": "+ Tabla",
+    "dz.dialect": "Dialecto",
+    "dz.exportSql": "Exportar SQL",
+    "dz.exportPrisma": "Exportar Prisma",
+    "dz.clear": "Limpiar",
+    "dz.clearConfirm": "¿Borrar todo el modelo del diseñador?",
+    "dz.empty": "Añade una tabla para empezar tu modelo.",
+    "dz.relations": "Relaciones (claves foráneas)",
+    "dz.addRel": "Añadir relación",
+    "dz.addCol": "columna",
+    "dz.colName": "nombre",
+    "dz.colType": "tipo",
+    "dz.delTable": "Eliminar tabla",
+    "dz.save": "Guardar",
+    "dz.sqlTitle": "SQL del modelo",
+    "dz.prismaTitle": "Esquema Prisma",
     "banner.noBackend": "⚠️ Esta interfaz necesita el backend. Ejecútala con cargo run o npm run tauri dev.",
     "card.origin": "Origen",
     "card.dest": "Destino",
@@ -137,6 +155,24 @@ const I18N = {
     "theme.light": "Light",
     "theme.dark": "Dark",
     "theme.system": "System",
+    "mode.compare": "Compare",
+    "mode.design": "Design",
+    "dz.addTable": "+ Table",
+    "dz.dialect": "Dialect",
+    "dz.exportSql": "Export SQL",
+    "dz.exportPrisma": "Export Prisma",
+    "dz.clear": "Clear",
+    "dz.clearConfirm": "Clear the whole designer model?",
+    "dz.empty": "Add a table to start your model.",
+    "dz.relations": "Relations (foreign keys)",
+    "dz.addRel": "Add relation",
+    "dz.addCol": "column",
+    "dz.colName": "name",
+    "dz.colType": "type",
+    "dz.delTable": "Delete table",
+    "dz.save": "Save",
+    "dz.sqlTitle": "Model SQL",
+    "dz.prismaTitle": "Prisma schema",
     "banner.noBackend": "⚠️ This UI needs the backend. Run it with cargo run or npm run tauri dev.",
     "card.origin": "Source",
     "card.dest": "Target",
@@ -288,6 +324,8 @@ function applyI18n() {
     updateScriptFromSelection();
     if (!document.getElementById("tab-diagram").hidden) renderDiagram();
   }
+  const designer = document.getElementById("designer");
+  if (designer && !designer.hidden) renderDesigner();
 }
 
 // ===========================================================================
@@ -492,7 +530,7 @@ function rememberConn(c) {
 
 /** Rellena el selector «Recientes…» de cada tarjeta (oculto si no hay ninguna). */
 function renderRecentSelectors() {
-  document.querySelectorAll(".recent-select").forEach((sel) => {
+  document.querySelectorAll(".card-foot .recent-select").forEach((sel) => {
     const has = recentConns.length > 0;
     sel.hidden = !has;
     if (!has) return;
@@ -724,8 +762,10 @@ compareBtn.addEventListener("click", async () => {
 // Navegación por fases (Paso 1 Conexión → Paso 2 Comparación)
 // ===========================================================================
 let hasCompared = false;
+let activeStep = "connection";
 
 function goToStep(step) {
+  activeStep = step;
   document.getElementById("step-connection").hidden = step !== "connection";
   document.getElementById("step-comparison").hidden = step !== "comparison";
   document.querySelectorAll(".step").forEach((s) => s.classList.toggle("active", s.dataset.step === step));
@@ -1552,6 +1592,395 @@ document.getElementById("apply-data").addEventListener("click", async (e) => {
   } finally {
     btn.disabled = false;
     btn.textContent = prev;
+  }
+});
+
+// ===========================================================================
+// Diseñador de diagramas ER (crear un modelo y exportarlo a SQL / Prisma)
+// ===========================================================================
+let design = (() => {
+  try {
+    const d = JSON.parse(localStorage.getItem("datadiff.design") || "null");
+    if (d && Array.isArray(d.tables)) return { seq: 1, relations: [], ...d };
+  } catch {}
+  return { tables: [], relations: [], seq: 1 };
+})();
+let lastDesignOut = "";
+
+function saveDesign() {
+  try { localStorage.setItem("datadiff.design", JSON.stringify(design)); } catch {}
+}
+function dzTableById(id) { return design.tables.find((x) => x.id === id); }
+
+function showDesigner(on) {
+  document.querySelector(".stepper").hidden = on;
+  document.getElementById("designer").hidden = !on;
+  document.getElementById("mode-compare").classList.toggle("active", !on);
+  document.getElementById("mode-design").classList.toggle("active", on);
+  if (on) {
+    document.getElementById("step-connection").hidden = true;
+    document.getElementById("step-comparison").hidden = true;
+    renderDesigner();
+  } else {
+    goToStep(activeStep || "connection");
+  }
+  window.scrollTo(0, 0);
+}
+
+function renderDesigner() {
+  const canvas = document.getElementById("design-canvas");
+  if (!canvas) return;
+  canvas.innerHTML = "";
+  document.getElementById("design-empty").hidden = design.tables.length > 0;
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("class", "dz-edges");
+  svg.id = "dz-edges";
+  canvas.appendChild(svg);
+  for (const tbl of design.tables) canvas.appendChild(buildDesignCard(tbl));
+  drawDesignEdges();
+  populateRelForm();
+  renderRelList();
+}
+
+function flagLabel(text, checked, onChange) {
+  const lbl = document.createElement("label");
+  lbl.className = "dz-flag";
+  lbl.title = text;
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = !!checked;
+  cb.addEventListener("change", () => onChange(cb.checked));
+  lbl.append(cb, document.createTextNode(text));
+  return lbl;
+}
+
+function buildColRow(tbl, col, idx) {
+  const li = document.createElement("li");
+  li.className = "dz-col";
+  const name = document.createElement("input");
+  name.type = "text";
+  name.className = "dz-c-name";
+  name.value = col.name;
+  name.placeholder = t("dz.colName");
+  name.addEventListener("input", () => { col.name = name.value; saveDesign(); populateRelForm(); renderRelList(); });
+  const type = document.createElement("input");
+  type.type = "text";
+  type.className = "dz-c-type";
+  type.value = col.type;
+  type.placeholder = t("dz.colType");
+  type.addEventListener("input", () => { col.type = type.value; saveDesign(); });
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "dz-icon-btn";
+  del.textContent = "✕";
+  del.addEventListener("click", () => { tbl.columns.splice(idx, 1); saveDesign(); renderDesigner(); });
+  li.append(
+    name,
+    type,
+    flagLabel("PK", col.pk, (v) => { col.pk = v; saveDesign(); }),
+    flagLabel("NN", col.nn, (v) => { col.nn = v; saveDesign(); }),
+    del
+  );
+  return li;
+}
+
+function buildDesignCard(tbl) {
+  const card = document.createElement("div");
+  card.className = "dz-table";
+  card.dataset.id = tbl.id;
+  card.style.left = (tbl.x || 20) + "px";
+  card.style.top = (tbl.y || 20) + "px";
+
+  const head = document.createElement("div");
+  head.className = "dz-head";
+  const nameInp = document.createElement("input");
+  nameInp.type = "text";
+  nameInp.className = "dz-name";
+  nameInp.value = tbl.name;
+  nameInp.addEventListener("input", () => { tbl.name = nameInp.value; saveDesign(); populateRelForm(); renderRelList(); });
+  const delBtn = document.createElement("button");
+  delBtn.type = "button";
+  delBtn.className = "dz-icon-btn";
+  delBtn.textContent = "✕";
+  delBtn.title = t("dz.delTable");
+  delBtn.addEventListener("click", () => {
+    design.tables = design.tables.filter((x) => x.id !== tbl.id);
+    design.relations = design.relations.filter((r) => r.fromTable !== tbl.id && r.toTable !== tbl.id);
+    saveDesign();
+    renderDesigner();
+  });
+  head.append(nameInp, delBtn);
+  makeDesignDraggable(card, head, tbl);
+  card.appendChild(head);
+
+  const ul = document.createElement("ul");
+  ul.className = "dz-cols";
+  tbl.columns.forEach((c, i) => ul.appendChild(buildColRow(tbl, c, i)));
+  card.appendChild(ul);
+
+  const addCol = document.createElement("button");
+  addCol.type = "button";
+  addCol.className = "dz-add-col";
+  addCol.textContent = "+ " + t("dz.addCol");
+  addCol.addEventListener("click", () => {
+    tbl.columns.push({ name: "columna", type: "TEXT", pk: false, nn: false });
+    saveDesign();
+    renderDesigner();
+  });
+  card.appendChild(addCol);
+  return card;
+}
+
+function makeDesignDraggable(card, handle, tbl) {
+  handle.addEventListener("mousedown", (e) => {
+    if (e.target.closest("input, button")) return; // no arrastres al editar el nombre o borrar
+    e.preventDefault();
+    const start = { x: e.clientX, y: e.clientY, left: tbl.x || 20, top: tbl.y || 20 };
+    const move = (ev) => {
+      tbl.x = Math.max(0, Math.round(start.left + (ev.clientX - start.x)));
+      tbl.y = Math.max(0, Math.round(start.top + (ev.clientY - start.y)));
+      card.style.left = tbl.x + "px";
+      card.style.top = tbl.y + "px";
+      drawDesignEdges();
+    };
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      handle.classList.remove("dragging");
+      saveDesign();
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+    handle.classList.add("dragging");
+  });
+}
+
+function drawDesignEdges() {
+  const svg = document.getElementById("dz-edges");
+  const canvas = document.getElementById("design-canvas");
+  if (!svg || !canvas) return;
+  svg.textContent = "";
+  svg.setAttribute("width", canvas.scrollWidth);
+  svg.setAttribute("height", canvas.scrollHeight);
+  for (const r of design.relations) {
+    const a = canvas.querySelector(`.dz-table[data-id="${r.fromTable}"]`);
+    const b = canvas.querySelector(`.dz-table[data-id="${r.toTable}"]`);
+    if (!a || !b) continue;
+    const ax = a.offsetLeft + a.offsetWidth / 2, ay = a.offsetTop + a.offsetHeight / 2;
+    const bx = b.offsetLeft + b.offsetWidth / 2, by = b.offsetTop + b.offsetHeight / 2;
+    const line = document.createElementNS(SVGNS, "line");
+    line.setAttribute("x1", ax);
+    line.setAttribute("y1", ay);
+    line.setAttribute("x2", bx);
+    line.setAttribute("y2", by);
+    svg.appendChild(line);
+  }
+}
+
+function fillColSelect(selId, tableId) {
+  const sel = document.getElementById(selId);
+  if (!sel) return;
+  const tbl = dzTableById(tableId);
+  const keep = sel.value;
+  sel.innerHTML = tbl ? tbl.columns.map((c) => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join("") : "";
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+}
+
+function populateRelForm() {
+  const fromT = document.getElementById("rel-from-table");
+  const toT = document.getElementById("rel-to-table");
+  if (!fromT || !toT) return;
+  const opts = design.tables.map((tbl) => `<option value="${esc(tbl.id)}">${esc(tbl.name)}</option>`).join("");
+  const keepF = fromT.value, keepT = toT.value;
+  fromT.innerHTML = opts;
+  toT.innerHTML = opts;
+  if ([...fromT.options].some((o) => o.value === keepF)) fromT.value = keepF;
+  if ([...toT.options].some((o) => o.value === keepT)) toT.value = keepT;
+  fillColSelect("rel-from-col", fromT.value);
+  fillColSelect("rel-to-col", toT.value);
+}
+
+function renderRelList() {
+  const ul = document.getElementById("rel-list");
+  if (!ul) return;
+  ul.innerHTML = "";
+  for (const r of design.relations) {
+    const ft = dzTableById(r.fromTable), tt = dzTableById(r.toTable);
+    if (!ft || !tt) continue;
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="mono">${esc(ft.name)}.${esc(r.fromCol)} → ${esc(tt.name)}.${esc(r.toCol)}</span><span class="spacer"></span>`;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "dz-icon-btn";
+    del.textContent = "✕";
+    del.addEventListener("click", () => {
+      design.relations = design.relations.filter((x) => x.id !== r.id);
+      saveDesign();
+      renderDesigner();
+    });
+    li.appendChild(del);
+    ul.appendChild(li);
+  }
+}
+
+// ── Exportadores ──
+function dzQuote(dialect, s) {
+  return dialect === "sqlserver" ? `[${String(s).replace(/]/g, "]]")}]` : `"${String(s).replace(/"/g, '""')}"`;
+}
+
+function designToSql(dialect) {
+  const q = (s) => dzQuote(dialect, s);
+  let out = "-- Modelo generado por el diseñador de DataDiff\n\n";
+  for (const tbl of design.tables) {
+    const lines = tbl.columns.map((c) => `    ${q(c.name)} ${(c.type || "TEXT").trim() || "TEXT"} ${c.nn ? "NOT NULL" : "NULL"}`);
+    const pks = tbl.columns.filter((c) => c.pk).map((c) => q(c.name));
+    if (pks.length) lines.push(`    PRIMARY KEY (${pks.join(", ")})`);
+    if (dialect === "sqlite") {
+      for (const r of design.relations.filter((x) => x.fromTable === tbl.id)) {
+        const tt = dzTableById(r.toTable);
+        if (tt) lines.push(`    FOREIGN KEY (${q(r.fromCol)}) REFERENCES ${q(tt.name)} (${q(r.toCol)})`);
+      }
+    }
+    out += `CREATE TABLE ${q(tbl.name)} (\n${lines.join(",\n")}\n);\n\n`;
+  }
+  if (dialect !== "sqlite") {
+    for (const r of design.relations) {
+      const ft = dzTableById(r.fromTable), tt = dzTableById(r.toTable);
+      if (!ft || !tt) continue;
+      out += `ALTER TABLE ${q(ft.name)} ADD CONSTRAINT ${q("fk_" + ft.name + "_" + r.fromCol)} FOREIGN KEY (${q(r.fromCol)}) REFERENCES ${q(tt.name)} (${q(r.toCol)});\n`;
+    }
+  }
+  return out;
+}
+
+function prismaType(sqlType) {
+  const s = (sqlType || "").toLowerCase();
+  if (/bigint/.test(s)) return "BigInt";
+  if (/int|serial/.test(s)) return "Int";
+  if (/real|floa|doub|decimal|numeric|money/.test(s)) return "Float";
+  if (/bool/.test(s)) return "Boolean";
+  if (/date|time/.test(s)) return "DateTime";
+  return "String";
+}
+function pascal(s) {
+  return String(s).replace(/(^|[_\s]+)([a-zA-Z])/g, (_, __, c) => c.toUpperCase()).replace(/[^A-Za-z0-9]/g, "") || "Modelo";
+}
+
+function designToPrisma() {
+  const relFrom = {}, relTo = {};
+  for (const r of design.relations) {
+    (relFrom[r.fromTable] = relFrom[r.fromTable] || []).push(r);
+    (relTo[r.toTable] = relTo[r.toTable] || []).push(r);
+  }
+  let out = "// Modelo generado por el diseñador de DataDiff\n\n";
+  for (const tbl of design.tables) {
+    out += `model ${pascal(tbl.name)} {\n`;
+    const pkCols = tbl.columns.filter((c) => c.pk).map((c) => c.name);
+    for (const c of tbl.columns) {
+      const optional = c.nn || c.pk ? "" : "?";
+      let line = `  ${c.name} ${prismaType(c.type)}${optional}`;
+      if (c.pk && pkCols.length === 1) line += " @id";
+      out += line + "\n";
+    }
+    for (const r of relFrom[tbl.id] || []) {
+      const tt = dzTableById(r.toTable);
+      if (tt) out += `  ${(tt.name || "rel").toLowerCase()} ${pascal(tt.name)} @relation(fields: [${r.fromCol}], references: [${r.toCol}])\n`;
+    }
+    for (const r of relTo[tbl.id] || []) {
+      const ft = dzTableById(r.fromTable);
+      if (ft) out += `  ${(ft.name || "rel").toLowerCase()}s ${pascal(ft.name)}[]\n`;
+    }
+    if (pkCols.length > 1) out += `  @@id([${pkCols.join(", ")}])\n`;
+    out += `}\n\n`;
+  }
+  return out;
+}
+
+function showDesignOutput(title, text) {
+  lastDesignOut = text;
+  document.getElementById("dz-output-title").textContent = title;
+  document.getElementById("design-box").innerHTML = highlightSql(text);
+  const box = document.getElementById("design-output");
+  box.hidden = false;
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// ── Enganches de la interfaz del diseñador ──
+document.getElementById("mode-design").addEventListener("click", () => showDesigner(true));
+document.getElementById("mode-compare").addEventListener("click", () => showDesigner(false));
+
+document.getElementById("add-table").addEventListener("click", () => {
+  const n = design.tables.length;
+  design.tables.push({
+    id: "t" + design.seq++,
+    name: "tabla_" + (n + 1),
+    x: 20 + (n % 4) * 250,
+    y: 20 + Math.floor(n / 4) * 230,
+    columns: [{ name: "id", type: "INTEGER", pk: true, nn: true }],
+  });
+  saveDesign();
+  renderDesigner();
+});
+
+document.getElementById("rel-add").addEventListener("click", () => {
+  const fromTable = document.getElementById("rel-from-table").value;
+  const fromCol = document.getElementById("rel-from-col").value;
+  const toTable = document.getElementById("rel-to-table").value;
+  const toCol = document.getElementById("rel-to-col").value;
+  if (!fromTable || !toTable || !fromCol || !toCol) return;
+  design.relations.push({ id: "r" + design.seq++, fromTable, fromCol, toTable, toCol });
+  saveDesign();
+  renderDesigner();
+});
+
+document.getElementById("rel-from-table").addEventListener("change", (e) => fillColSelect("rel-from-col", e.target.value));
+document.getElementById("rel-to-table").addEventListener("change", (e) => fillColSelect("rel-to-col", e.target.value));
+
+document.getElementById("clear-design").addEventListener("click", async () => {
+  let ok = false;
+  try { ok = await askConfirm(t("dz.clearConfirm")); } catch { ok = false; }
+  if (!ok) return;
+  design = { tables: [], relations: [], seq: 1 };
+  saveDesign();
+  renderDesigner();
+  document.getElementById("design-output").hidden = true;
+});
+
+document.getElementById("export-sql").addEventListener("click", () => {
+  if (!design.tables.length) return;
+  showDesignOutput(t("dz.sqlTitle"), designToSql(document.getElementById("design-dialect").value));
+});
+document.getElementById("export-prisma").addEventListener("click", () => {
+  if (!design.tables.length) return;
+  showDesignOutput(t("dz.prismaTitle"), designToPrisma());
+});
+
+document.getElementById("copy-design").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  try {
+    await navigator.clipboard.writeText(lastDesignOut);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = lastDesignOut;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch {}
+    ta.remove();
+  }
+  btn.textContent = t("btn.copied");
+  setTimeout(() => (btn.textContent = t("btn.copy")), 1200);
+});
+
+document.getElementById("save-design").addEventListener("click", async () => {
+  errorBanner.hidden = true;
+  const isPrisma = document.getElementById("dz-output-title").textContent === t("dz.prismaTitle");
+  try {
+    const path = isPrisma
+      ? await saveFileDialog(t("dz.save"), "schema.prisma", "Prisma", "prisma")
+      : await saveFileDialog(t("dz.save"), "modelo.sql", "SQL", "sql");
+    if (path) await invoke("save_text_file", { path, content: lastDesignOut });
+  } catch (e) {
+    showError(e);
   }
 });
 

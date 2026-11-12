@@ -21,6 +21,8 @@ _Última actualización: noviembre 2026._
   diferencias** a color. Interactivo (zoom, desplazamiento, arrastrar, pantalla completa)
   y **exportable a PNG/SVG**.
 - **Informe de diferencias** en HTML (imprimible a PDF) con resumen, detalle y script.
+- **Diseñador de diagramas ER:** crea un modelo visualmente (tablas, columnas con
+  PK/NOT NULL y relaciones) y expórtalo a **SQL** (SQL Server / PostgreSQL / SQLite) y **Prisma**.
 - **Conexiones recientes** y **guardar / abrir una comparación** (`.ddcmp`), ambas sin
   guardar contraseñas.
 - **Interfaz por fases** (Conexión → Comparación), **bilingüe ES/EN** y con
@@ -41,8 +43,6 @@ _Última actualización: noviembre 2026._
 ## 🚀 Funcionalidad grande
 
 - **Comparar datos de filas en SQL Server y PostgreSQL** (hoy solo SQLite).
-- **Diseñador de diagramas ER:** crear y editar el modelo visualmente y exportarlo a
-  SQL, Prisma, etc. (hoy el diagrama es de solo lectura).
 - **Validación de CA en TLS** (hoy se confía en el certificado del servidor).
 
 ## 📦 Pulido y distribución
