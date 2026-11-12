@@ -3,6 +3,7 @@
 > Comparador de **objetos** de base de datos — multiplataforma y multi-motor.
 > Una alternativa open source a **SSDT Schema Compare**, hecha con **Rust + Tauri**.
 
+[![CI](https://github.com/marlontaro/DataDiff/actions/workflows/ci.yml/badge.svg)](https://github.com/marlontaro/DataDiff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?logo=tauri&logoColor=white)
