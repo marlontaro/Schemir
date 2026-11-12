@@ -368,6 +368,15 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .data-pick .recent-select { margin-left: 0; max-width: 280px; }
 .data-pick .btn { font-size: 12px; padding: 8px 14px; }
 #data-summary:empty { display: none; }
+.dgrid-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; max-height: 420px; }
+.dgrid { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.dgrid th, .dgrid td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+.dgrid thead th { position: sticky; top: 0; z-index: 1; color: var(--muted); font-weight: 700; background: var(--surface-2); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px; }
+.dgrid tbody td { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
+.dgrid tbody tr:hover { background: var(--surface-2); }
+.dgrid .op-col { width: 1%; }
+.dgrid .null { color: var(--muted); font-style: italic; }
+.grid-note { margin: 0 0 16px; font-size: 12px; color: var(--muted); }
 .diagram-box {
   background: var(--diagram-bg); border: 1px solid var(--border); border-radius: var(--radius);
   position: relative; overflow: hidden; height: 600px; cursor: grab;

@@ -90,6 +90,10 @@ const I18N = {
     "data.rightRows": "Filas solo en B",
     "data.diffRows": "Filas distintas",
     "data.equalRows": "Filas iguales",
+    "data.opInsert": "Nueva",
+    "data.opUpdate": "Cambiada",
+    "data.opDelete": "Sobrante",
+    "data.gridMore": "Mostrando {0} de {1} filas con diferencias (el DML completo está abajo).",
     "data.info": "DML para dejar los datos de B iguales que A · revísalo antes de ejecutarlo.",
     "data.none": "-- Sin diferencias de datos.",
     "data.noTables": "No hay tablas en ambas bases.",
@@ -230,6 +234,10 @@ const I18N = {
     "data.rightRows": "Rows only in B",
     "data.diffRows": "Rows different",
     "data.equalRows": "Rows equal",
+    "data.opInsert": "New",
+    "data.opUpdate": "Changed",
+    "data.opDelete": "Extra",
+    "data.gridMore": "Showing {0} of {1} differing rows (full DML below).",
     "data.info": "DML to make B's data match A · review it before running.",
     "data.none": "-- No data differences.",
     "data.noTables": "No tables in both databases.",
@@ -1491,6 +1499,7 @@ function populateDataTables() {
   lastDataDml = "";
   document.getElementById("data-summary").innerHTML = "";
   document.getElementById("data-result").hidden = true;
+  document.getElementById("data-grid-wrap").hidden = true;
   const empty = document.getElementById("data-empty");
   empty.hidden = false;
   empty.textContent = inBoth.length ? t("data.hint") : t("data.noTables");
@@ -1503,6 +1512,7 @@ function renderDataResult(cmp) {
   if (cmp.note) {
     summary.innerHTML = "";
     result.hidden = true;
+    document.getElementById("data-grid-wrap").hidden = true;
     empty.hidden = false;
     empty.textContent = cmp.note;
     lastDataDml = "";
@@ -1518,9 +1528,47 @@ function renderDataResult(cmp) {
   summary.innerHTML = tiles
     .map(([st, n, k]) => `<div class="stat ${st}"><div class="stat-n">${n}</div><div class="stat-l"><span class="dot"></span>${esc(t(k))}</div></div>`)
     .join("");
+  renderDataGrid(cmp);
   lastDataDml = cmp.dml || "";
   document.getElementById("data-box").innerHTML = highlightSql(lastDataDml || t("data.none"));
   result.hidden = false;
+}
+
+/** Cuadrícula con una muestra de las filas que difieren (más legible que el DML). */
+function renderDataGrid(cmp) {
+  const gw = document.getElementById("data-grid-wrap");
+  const grid = document.getElementById("data-grid");
+  const note = document.getElementById("data-grid-note");
+  const sample = cmp.sample || [];
+  if (!sample.length) {
+    gw.hidden = true;
+    return;
+  }
+  const cols = cmp.columns || [];
+  const opBadge = { insert: "left", update: "diff", delete: "right" };
+  const opKey = { insert: "data.opInsert", update: "data.opUpdate", delete: "data.opDelete" };
+  const head = `<thead><tr><th class="op-col"></th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>`;
+  const body =
+    "<tbody>" +
+    sample
+      .map((r) => {
+        const badge = opBadge[r.op] || "equal";
+        const cells = (r.cells || [])
+          .map((v) => `<td>${v === null || v === undefined ? '<span class="null">NULL</span>' : esc(v)}</td>`)
+          .join("");
+        return `<tr><td class="op-col"><span class="badge ${badge}"><span class="dot"></span>${esc(t(opKey[r.op] || ""))}</span></td>${cells}</tr>`;
+      })
+      .join("") +
+    "</tbody>";
+  grid.innerHTML = head + body;
+  gw.hidden = false;
+  const total = cmp.only_in_left + cmp.only_in_right + cmp.different;
+  if (sample.length < total) {
+    note.hidden = false;
+    note.textContent = t("data.gridMore").replace("{0}", sample.length).replace("{1}", total);
+  } else {
+    note.hidden = true;
+  }
 }
 
 document.getElementById("compare-data").addEventListener("click", async (e) => {

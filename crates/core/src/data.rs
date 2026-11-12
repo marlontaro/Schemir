@@ -49,11 +49,26 @@ pub struct DataTable {
     pub truncated: bool,
 }
 
+/// Una fila de la muestra de diferencias (para mostrarla en una cuadrícula).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SampleRow {
+    /// "insert" (solo en A), "update" (distinta) o "delete" (solo en B).
+    pub op: String,
+    /// Valores de la fila en el orden de `columns` (texto o `None` = NULL).
+    pub cells: Vec<Option<String>>,
+}
+
+/// Cuántas filas de diferencia se incluyen en la muestra (para no cargar miles).
+const SAMPLE_CAP: usize = 200;
+
 /// Resultado de comparar los datos de una tabla entre A y B.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DataComparison {
     pub table: String,
     pub pk: Vec<String>,
+    /// Nombres de columna (de A), para los encabezados de la cuadrícula.
+    #[serde(default)]
+    pub columns: Vec<String>,
     /// Filas que están en A pero no en B (se insertarían en B).
     pub only_in_left: usize,
     /// Filas que están en B pero no en A (se borrarían de B).
@@ -62,6 +77,9 @@ pub struct DataComparison {
     pub different: usize,
     /// Filas idénticas en ambos.
     pub equal: usize,
+    /// Muestra de hasta `SAMPLE_CAP` filas con diferencias (para la cuadrícula).
+    #[serde(default)]
+    pub sample: Vec<SampleRow>,
     /// Script DML para dejar los datos de B iguales que los de A.
     pub dml: String,
     #[serde(default)]
@@ -204,6 +222,8 @@ pub fn compare_table_data(left: &DataTable, right: &DataTable, d: Dialect) -> Da
     // Índice de columnas de B por nombre, para comparar por nombre (no por posición).
     let ridx: BTreeMap<&str, usize> = right.columns.iter().enumerate().map(|(i, c)| (c.name.as_str(), i)).collect();
 
+    out.columns = left.columns.iter().map(|c| c.name.clone()).collect();
+
     let rmap: BTreeMap<String, &Vec<Option<String>>> = right.rows.iter().map(|r| (row_key(r, &rpk), r)).collect();
 
     let mut left_keys: BTreeSet<String> = BTreeSet::new();
@@ -217,11 +237,17 @@ pub fn compare_table_data(left: &DataTable, right: &DataTable, d: Dialect) -> Da
             None => {
                 out.only_in_left += 1;
                 let _ = writeln!(inserts, "{}", insert_stmt(d, left, lrow));
+                if out.sample.len() < SAMPLE_CAP {
+                    out.sample.push(SampleRow { op: "insert".into(), cells: lrow.clone() });
+                }
             }
             Some(rrow) => {
                 if row_values_differ(left, right, lrow, rrow, &ridx) {
                     out.different += 1;
                     let _ = writeln!(updates, "{}", update_stmt(d, left, lrow, &lpk));
+                    if out.sample.len() < SAMPLE_CAP {
+                        out.sample.push(SampleRow { op: "update".into(), cells: lrow.clone() });
+                    }
                 } else {
                     out.equal += 1;
                 }
@@ -235,6 +261,15 @@ pub fn compare_table_data(left: &DataTable, right: &DataTable, d: Dialect) -> Da
         if !left_keys.contains(&k) {
             out.only_in_right += 1;
             let _ = writeln!(deletes, "{}", delete_stmt_right(d, left, rrow, &rpk));
+            if out.sample.len() < SAMPLE_CAP {
+                // Reordenamos la fila de B al orden de columnas de A para la cuadrícula.
+                let cells = left
+                    .columns
+                    .iter()
+                    .map(|c| ridx.get(c.name.as_str()).and_then(|&j| rrow.get(j).cloned().flatten()))
+                    .collect();
+                out.sample.push(SampleRow { op: "delete".into(), cells });
+            }
         }
     }
 
@@ -355,6 +390,14 @@ mod tests {
         assert!(c.dml.contains("INSERT INTO \"main\".\"cli\" (\"id\", \"nombre\") VALUES (1, 'Ana');"), "{}", c.dml);
         assert!(c.dml.contains("UPDATE \"main\".\"cli\" SET \"nombre\" = 'Beto' WHERE \"id\" = 2;"), "{}", c.dml);
         assert!(c.dml.contains("DELETE FROM \"main\".\"cli\" WHERE \"id\" = 3;"), "{}", c.dml);
+        // Muestra para la cuadrícula: 1 insert + 1 update + 1 delete, con encabezados.
+        assert_eq!(c.columns, vec!["id".to_string(), "nombre".to_string()]);
+        assert_eq!(c.sample.len(), 3);
+        let ins = c.sample.iter().find(|s| s.op == "insert").unwrap();
+        assert_eq!(ins.cells, vec![Some("1".to_string()), Some("Ana".to_string())]);
+        // La fila de borrado viene de B (id=3, Caro), reordenada al orden de A.
+        let del = c.sample.iter().find(|s| s.op == "delete").unwrap();
+        assert_eq!(del.cells, vec![Some("3".to_string()), Some("Caro".to_string())]);
     }
 
     #[test]
