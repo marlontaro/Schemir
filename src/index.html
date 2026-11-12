@@ -184,6 +184,13 @@
                   <button type="button" id="export-report" class="btn ghost" data-i18n="btn.report" data-i18n-title="report.hint">Exportar informe</button>
                 </div>
               </div>
+              <div class="sel-bar" id="sel-bar" hidden>
+                <label class="sel-master">
+                  <input type="checkbox" id="sel-all-cb" checked />
+                  <span data-i18n="sel.syncAll">Sincronizar todo</span>
+                </label>
+                <span class="sel-count" id="sel-count"></span>
+              </div>
               <div class="rows" id="rows"></div>
               <p id="empty" class="empty" hidden data-i18n="empty.filter">No hay objetos que coincidan con el filtro.</p>
             </div>

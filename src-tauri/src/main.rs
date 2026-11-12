@@ -3,7 +3,10 @@
 
 mod db;
 
-use datadiff_core::{compare_schemas, generate_sync_script, to_diagram_model, to_diff_diagram, ComparisonResult, Dialect, DiagramModel};
+use datadiff_core::{
+    compare_schemas, generate_sync_script, generate_sync_units, to_diagram_model, to_diff_diagram,
+    ComparisonResult, Dialect, DiagramModel, ScriptUnit,
+};
 use db::{ConnectionConfig, EngineKind};
 use serde::Serialize;
 
@@ -12,6 +15,8 @@ use serde::Serialize;
 struct CompareOutput {
     comparison: ComparisonResult,
     script: String,
+    /// El script separado por objeto, para que la interfaz elija qué sincronizar.
+    script_units: Vec<ScriptUnit>,
     diagram_a: DiagramModel,
     diagram_b: DiagramModel,
     diagram_diff: DiagramModel,
@@ -40,11 +45,13 @@ async fn compare_databases(
         .map_err(|e| format!("DESTINO (B): {e}"))?;
 
     let comparison = compare_schemas(&source, &target);
-    let script = generate_sync_script(&source, &target, dialect_of(right.engine));
+    let dialect = dialect_of(right.engine);
+    let script = generate_sync_script(&source, &target, dialect);
+    let script_units = generate_sync_units(&source, &target, dialect);
     let diagram_a = to_diagram_model(&source);
     let diagram_b = to_diagram_model(&target);
     let diagram_diff = to_diff_diagram(&source, &target);
-    Ok(CompareOutput { comparison, script, diagram_a, diagram_b, diagram_diff })
+    Ok(CompareOutput { comparison, script, script_units, diagram_a, diagram_b, diagram_diff })
 }
 
 /// Prueba una conexión y devuelve un mensaje legible (versión del motor, etc.).

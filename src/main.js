@@ -71,6 +71,11 @@ const I18N = {
     "report.objects": "Objetos con diferencias",
     "report.script": "Script de sincronización",
     "report.noChanges": "No se encontraron diferencias.",
+    "sel.syncAll": "Sincronizar todo",
+    "sel.count": "{0} de {1} objetos",
+    "sel.include": "Incluir en la sincronización",
+    "script.noneSel": "(no hay objetos marcados para sincronizar)",
+    "apply.nothing": "No hay objetos marcados para aplicar.",
     "diag.field": "Campo",
     "diag.type": "Tipo de dato",
     "diag.key": "Clave",
@@ -153,6 +158,11 @@ const I18N = {
     "report.objects": "Objects with differences",
     "report.script": "Synchronization script",
     "report.noChanges": "No differences found.",
+    "sel.syncAll": "Sync all",
+    "sel.count": "{0} of {1} objects",
+    "sel.include": "Include in synchronization",
+    "script.noneSel": "(no objects selected to synchronize)",
+    "apply.nothing": "No objects selected to apply.",
     "diag.field": "Field",
     "diag.type": "Data type",
     "diag.key": "Key",
@@ -204,7 +214,7 @@ function applyI18n() {
   const results = document.getElementById("results");
   if (results && !results.hidden) {
     renderResults();
-    document.getElementById("script-box").innerHTML = highlightSql(lastScript || t("script.none"));
+    updateScriptFromSelection();
     if (!document.getElementById("tab-diagram").hidden) renderDiagram();
   }
 }
@@ -291,6 +301,10 @@ const STATUS = {
 // Estado de la vista.
 let lastObjects = [];
 let lastScript = "";
+let lastUnits = [];              // unidades del script (una por objeto)
+let unitKeys = new Set();        // claves (tipo + nombre) que tienen SQL
+let deselected = new Set();      // objetos desmarcados (excluidos del script)
+const unitKey = (ot, name) => ot + "\u0000" + name;
 let lastDiagramA = { tables: [], relations: [] };
 let lastDiagramB = { tables: [], relations: [] };
 let lastDiagramDiff = { tables: [], relations: [] };
@@ -418,11 +432,14 @@ compareBtn.addEventListener("click", async () => {
     const result = await invoke("compare_databases", { left: readConfig("a"), right: readConfig("b") });
     lastObjects = result.comparison?.objects || [];
     lastScript = result.script || "";
+    lastUnits = result.script_units || [];
+    unitKeys = new Set(lastUnits.map((u) => unitKey(u.object_type, u.name)));
+    deselected = new Set(); // por defecto se sincroniza todo
     lastDiagramA = result.diagram_a || { tables: [], relations: [] };
     lastDiagramB = result.diagram_b || { tables: [], relations: [] };
     lastDiagramDiff = result.diagram_diff || { tables: [], relations: [] };
     renderResults();
-    document.getElementById("script-box").innerHTML = highlightSql(lastScript || t("script.none"));
+    updateScriptFromSelection();
     document.getElementById("phase-dbs").textContent = dbLabel(readConfig("a")) + "  ⇄  " + dbLabel(readConfig("b"));
     hasCompared = true;
     document.querySelector('.step[data-step="comparison"]').disabled = false;
@@ -480,11 +497,12 @@ document.querySelectorAll(".tab").forEach((tab) => {
 
 document.getElementById("copy-script").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
+  const script = composeScript();
   try {
-    await navigator.clipboard.writeText(lastScript);
+    await navigator.clipboard.writeText(script);
   } catch {
     const ta = document.createElement("textarea");
-    ta.value = lastScript;
+    ta.value = script;
     document.body.appendChild(ta);
     ta.select();
     try { document.execCommand("copy"); } catch {}
@@ -498,7 +516,7 @@ document.getElementById("save-script").addEventListener("click", async () => {
   errorBanner.hidden = true;
   try {
     const path = await saveSqlDialog();
-    if (path) await invoke("save_text_file", { path, content: lastScript });
+    if (path) await invoke("save_text_file", { path, content: composeScript() });
   } catch (e) {
     errorBanner.textContent = errText(e);
     errorBanner.hidden = false;
@@ -511,7 +529,12 @@ document.getElementById("apply-script").addEventListener("click", async (e) => {
   const status = document.getElementById("apply-status");
   status.className = "conn-status";
   status.textContent = "";
-  if (!lastScript || !lastScript.trim()) return;
+  const composed = composeScript();
+  const included = lastUnits.length - deselected.size;
+  if (lastUnits.length === 0 || included === 0) {
+    status.textContent = t("apply.nothing");
+    return;
+  }
 
   let ok = false;
   try {
@@ -525,7 +548,7 @@ document.getElementById("apply-script").addEventListener("click", async (e) => {
   btn.disabled = true;
   btn.textContent = t("apply.applying");
   try {
-    await invoke("apply_script", { config: readConfig("b"), script: lastScript });
+    await invoke("apply_script", { config: readConfig("b"), script: composed });
     status.className = "conn-status ok";
     status.textContent = t("apply.done");
   } catch (err) {
@@ -1074,6 +1097,77 @@ async function exportReport() {
 document.getElementById("export-report").addEventListener("click", exportReport);
 
 // ===========================================================================
+// Selección de sincronización: elegir qué objetos entran en el script
+// ===========================================================================
+function targetDialectLabel() {
+  const e = readConfig("b").engine;
+  return e === "postgres" ? "PostgreSQL" : e === "sqlite" ? "SQLite" : "SQL Server";
+}
+
+function syncHeader() {
+  return [
+    "-- ============================================================",
+    "-- Script de sincronización generado por DataDiff",
+    "-- Deja el DESTINO (B) igual que el ORIGEN (A)",
+    "-- Motor destino: " + targetDialectLabel(),
+    "-- (!) Revísalo y respalda el destino antes de ejecutarlo.",
+    "-- ============================================================",
+  ].join("\n");
+}
+
+/** Compone el script con SOLO las unidades marcadas (en el orden del backend). */
+function composeScript() {
+  const units = lastUnits || [];
+  if (!units.length) return lastScript || t("script.none");
+  const included = units.filter((u) => !deselected.has(unitKey(u.object_type, u.name)));
+  const header = syncHeader();
+  if (!included.length) return header + "\n\n-- " + t("script.noneSel") + "\n";
+  let out = header + "\n\n";
+  let section = null;
+  for (const u of included) {
+    if (u.section !== section) {
+      out += `-- ─── ${u.section} ───\n`;
+      section = u.section;
+    }
+    out += u.sql.replace(/\s+$/, "") + "\n\n";
+  }
+  return out.replace(/\s+$/, "") + "\n";
+}
+
+/** Refresca el cuadro del script y la barra de selección. */
+function updateScriptFromSelection() {
+  const box = document.getElementById("script-box");
+  if (box) box.innerHTML = highlightSql(composeScript());
+  updateSelUI();
+}
+
+/** Actualiza el contador y la casilla maestra "Sincronizar todo". */
+function updateSelUI() {
+  const total = lastUnits.length;
+  const inc = total - deselected.size;
+  const bar = document.getElementById("sel-bar");
+  if (bar) bar.hidden = total === 0;
+  const cnt = document.getElementById("sel-count");
+  if (cnt) cnt.textContent = total ? t("sel.count").replace("{0}", inc).replace("{1}", total) : "";
+  const master = document.getElementById("sel-all-cb");
+  if (master) {
+    master.checked = total > 0 && inc === total;
+    master.indeterminate = inc > 0 && inc < total;
+    master.disabled = total === 0;
+  }
+}
+
+/** Marca o desmarca todas las unidades a la vez. */
+function setAllSelected(sel) {
+  deselected = new Set();
+  if (!sel) for (const u of lastUnits) deselected.add(unitKey(u.object_type, u.name));
+  renderRows();
+  updateScriptFromSelection();
+}
+
+document.getElementById("sel-all-cb").addEventListener("change", (e) => setAllSelected(e.target.checked));
+
+// ===========================================================================
 // Render de resultados
 // ===========================================================================
 function renderResults() {
@@ -1121,12 +1215,18 @@ function renderRows() {
   for (const o of visible) {
     const m = STATUS[o.status];
     const hasDetails = o.details && o.details.length > 0;
+    const uKey = unitKey(o.object_type, o.name);
+    const hasUnit = unitKeys.has(uKey);
 
     const row = document.createElement("div");
     row.className = "row" + (hasDetails ? " expandable" : "");
     row.dataset.status = o.status;
+    const checkHtml = hasUnit
+      ? `<input type="checkbox" class="row-check" ${deselected.has(uKey) ? "" : "checked"} title="${esc(t("sel.include"))}" />`
+      : `<span class="row-check-spacer" aria-hidden="true"></span>`;
     row.innerHTML =
       `<div class="row-main">` +
+      checkHtml +
       `<span class="otype">${objIcon(o.object_type)}</span>` +
       `<span class="oname">${esc(o.name)}</span>` +
       `<span class="ometa">${esc(typeLabel(o.object_type))}</span>` +
@@ -1134,6 +1234,15 @@ function renderRows() {
       `<span class="badge ${m.badge}"><span class="dot"></span>${esc(t("status." + o.status))}</span>` +
       `<span class="chev">${hasDetails ? "▸" : ""}</span>` +
       `</div>`;
+    if (hasUnit) {
+      const cb = row.querySelector(".row-check");
+      cb.addEventListener("click", (ev) => ev.stopPropagation());
+      cb.addEventListener("change", () => {
+        if (cb.checked) deselected.delete(uKey);
+        else deselected.add(uKey);
+        updateScriptFromSelection();
+      });
+    }
 
     if (hasDetails) {
       const det = document.createElement("div");

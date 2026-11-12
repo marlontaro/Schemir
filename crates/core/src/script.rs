@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
+use crate::diff::DiffStatus;
 use crate::model::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table};
 
 /// Dialecto SQL del destino (determina el entrecomillado y la sintaxis).
@@ -165,14 +166,10 @@ fn alter_table(d: Dialect, src: &Table, tgt: &Table, out: &mut String, changes: 
     }
 }
 
-/// Emite CREATE/DROP para una categoría de rutinas (vistas, procs o funciones).
-fn routine_section(
-    d: Dialect,
-    source: &[Routine],
-    target: &[Routine],
-    out: &mut String,
-    changes: &mut usize,
-) {
+/// Genera una unidad por rutina (vista, proc o función) que cambia.
+fn routine_units(d: Dialect, label: &str, source: &[Routine], target: &[Routine], units: &mut Vec<ScriptUnit>) {
+    use DiffStatus::*;
+    const SECTION: &str = "Vistas / Procedimientos / Funciones";
     let tgt_by_name: BTreeMap<String, &Routine> =
         target.iter().map(|r| (r.qualified_name(), r)).collect();
     let src_names: BTreeSet<String> = source.iter().map(|r| r.qualified_name()).collect();
@@ -180,14 +177,9 @@ fn routine_section(
     // Crear (nuevas en A) o recrear (distintas): DROP + CREATE.
     for r in source {
         match tgt_by_name.get(&r.qualified_name()) {
-            None => {
-                let _ = writeln!(out, "{}\n", create_routine(d, r));
-                *changes += 1;
-            }
+            None => units.push(ScriptUnit::new(label, r.qualified_name(), OnlyInLeft, SECTION, create_routine(d, r))),
             Some(t) if normalize(&r.definition) != normalize(&t.definition) => {
-                let _ = writeln!(out, "{}", drop_routine(d, t));
-                let _ = writeln!(out, "{}\n", create_routine(d, r));
-                *changes += 1;
+                units.push(ScriptUnit::new(label, r.qualified_name(), Different, SECTION, format!("{}\n{}", drop_routine(d, t), create_routine(d, r))));
             }
             _ => {}
         }
@@ -196,8 +188,7 @@ fn routine_section(
     // Eliminar (están en B pero no en A).
     for t in target {
         if !src_names.contains(&t.qualified_name()) {
-            let _ = writeln!(out, "{}\n", drop_routine(d, t));
-            *changes += 1;
+            units.push(ScriptUnit::new(label, t.qualified_name(), OnlyInRight, SECTION, drop_routine(d, t)));
         }
     }
 }
@@ -277,170 +268,170 @@ fn same_fk(a: &ForeignKey, b: &ForeignKey) -> bool {
     a.from_table == b.from_table && a.from_columns == b.from_columns && a.to_table == b.to_table && a.to_columns == b.to_columns
 }
 
-/// Emite CREATE/DROP de índices (crear los nuevos, recrear los distintos, borrar los sobrantes).
-fn sync_indexes(source: &[Index], target: &[Index], d: Dialect, out: &mut String, changes: &mut usize) {
-    let src: BTreeMap<String, &Index> = source.iter().map(|i| (index_key(i), i)).collect();
-    let tgt: BTreeMap<String, &Index> = target.iter().map(|i| (index_key(i), i)).collect();
-    for (k, i) in &src {
-        match tgt.get(k) {
-            None => {
-                let _ = writeln!(out, "{}", create_index(d, i));
-                *changes += 1;
-            }
-            Some(ti) if !same_index(i, ti) => {
-                let _ = writeln!(out, "{}", drop_index(d, ti));
-                let _ = writeln!(out, "{}", create_index(d, i));
-                *changes += 1;
-            }
-            _ => {}
-        }
-    }
-    for (k, ti) in &tgt {
-        if !src.contains_key(k) {
-            let _ = writeln!(out, "{}", drop_index(d, ti));
-            *changes += 1;
+// Nota: la sincronización por categorías (índices, claves foráneas y CHECKs)
+// ahora vive en `generate_sync_units`, que produce una unidad por objeto para
+// que la interfaz pueda elegir qué se sincroniza.
+
+/// Una "unidad" del script: todo el SQL necesario para sincronizar UN objeto.
+/// La interfaz usa `(object_type, name)` para casar cada unidad con su fila de la
+/// lista de diferencias, y así permitir marcar/desmarcar qué objetos entran.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ScriptUnit {
+    /// Tipo legible, igual que en el diff: "Tabla", "Índice", "Vista"…
+    pub object_type: String,
+    /// Nombre/clave del objeto, igual que en el diff (p.ej. "dbo.Clientes").
+    pub name: String,
+    pub status: DiffStatus,
+    /// Sección a la que pertenece (para agrupar el script compuesto).
+    pub section: String,
+    /// El SQL de esta unidad (ya recortado de espacios sobrantes al final).
+    pub sql: String,
+}
+
+impl ScriptUnit {
+    fn new(object_type: &str, name: impl Into<String>, status: DiffStatus, section: &str, sql: String) -> Self {
+        ScriptUnit {
+            object_type: object_type.into(),
+            name: name.into(),
+            status,
+            section: section.into(),
+            sql: sql.trim_end().to_string(),
         }
     }
 }
 
-/// Emite ADD/DROP CONSTRAINT para las claves foráneas.
-fn sync_foreign_keys(source: &[ForeignKey], target: &[ForeignKey], d: Dialect, out: &mut String, changes: &mut usize) {
-    let src: BTreeMap<String, &ForeignKey> = source.iter().map(|f| (f.name.clone(), f)).collect();
-    let tgt: BTreeMap<String, &ForeignKey> = target.iter().map(|f| (f.name.clone(), f)).collect();
-    for (k, f) in &src {
-        match tgt.get(k) {
-            None => {
-                let _ = writeln!(out, "{}", add_fk(d, f));
-                *changes += 1;
-            }
-            Some(tf) if !same_fk(f, tf) => {
-                let _ = writeln!(out, "{}", drop_fk(d, tf));
-                let _ = writeln!(out, "{}", add_fk(d, f));
-                *changes += 1;
-            }
-            _ => {}
-        }
-    }
-    for (k, tf) in &tgt {
-        if !src.contains_key(k) {
-            let _ = writeln!(out, "{}", drop_fk(d, tf));
-            *changes += 1;
-        }
-    }
-}
+/// Genera el script de sincronización SEPARADO por objeto. Cada unidad trae el
+/// SQL de un solo objeto, para que la interfaz pueda componer el script final
+/// con solo lo que el usuario deja marcado. Van en orden seguro de dependencias:
+/// primero crear/alterar, luego índices/FK/CHECK/rutinas, y al final los DROP.
+pub fn generate_sync_units(source: &Schema, target: &Schema, d: Dialect) -> Vec<ScriptUnit> {
+    use DiffStatus::*;
+    let mut units: Vec<ScriptUnit> = Vec::new();
 
-/// Emite ADD/DROP CONSTRAINT para las restricciones CHECK.
-fn sync_checks(source: &[CheckConstraint], target: &[CheckConstraint], d: Dialect, out: &mut String, changes: &mut usize) {
-    let src: BTreeMap<String, &CheckConstraint> = source.iter().map(|c| (c.name.clone(), c)).collect();
-    let tgt: BTreeMap<String, &CheckConstraint> = target.iter().map(|c| (c.name.clone(), c)).collect();
-    for (k, c) in &src {
-        match tgt.get(k) {
-            None => {
-                let _ = writeln!(out, "{}", add_check(d, c));
-                *changes += 1;
-            }
-            Some(tc) if normalize(&c.definition) != normalize(&tc.definition) => {
-                let _ = writeln!(out, "{}", drop_check(d, tc));
-                let _ = writeln!(out, "{}", add_check(d, c));
-                *changes += 1;
-            }
-            _ => {}
-        }
-    }
-    for (k, tc) in &tgt {
-        if !src.contains_key(k) {
-            let _ = writeln!(out, "{}", drop_check(d, tc));
-            *changes += 1;
-        }
-    }
-}
-
-/// Genera el script SQL que transforma el esquema `target` (B) en `source` (A).
-pub fn generate_sync_script(source: &Schema, target: &Schema, d: Dialect) -> String {
-    let mut body = String::new();
-    let mut changes = 0usize;
-
-    // ── Tablas ──
     let tgt_tables: BTreeMap<String, &Table> =
         target.tables.iter().map(|t| (t.qualified_name(), t)).collect();
     let src_tnames: BTreeSet<String> = source.tables.iter().map(|t| t.qualified_name()).collect();
 
-    let mut creates = String::new();
+    // ── Tablas nuevas ──
     for t in &source.tables {
         if !tgt_tables.contains_key(&t.qualified_name()) {
-            let _ = writeln!(creates, "{}\n", create_table(d, t));
-            changes += 1;
+            units.push(ScriptUnit::new("Tabla", t.qualified_name(), OnlyInLeft, "Tablas nuevas", create_table(d, t)));
         }
-    }
-    if !creates.is_empty() {
-        let _ = write!(body, "-- ─── Tablas nuevas ───\n{creates}\n");
     }
 
-    let mut alters = String::new();
+    // ── Cambios en columnas (tablas presentes en ambos) ──
     for src in &source.tables {
         if let Some(tgt) = tgt_tables.get(&src.qualified_name()) {
-            alter_table(d, src, tgt, &mut alters, &mut changes);
+            let mut sql = String::new();
+            let mut changes = 0usize;
+            alter_table(d, src, tgt, &mut sql, &mut changes);
+            if changes > 0 {
+                units.push(ScriptUnit::new("Tabla", src.qualified_name(), Different, "Cambios en columnas", sql));
+            }
         }
-    }
-    if !alters.is_empty() {
-        let _ = write!(body, "-- ─── Cambios en columnas ───\n{alters}\n");
     }
 
     // ── Índices ──
-    let mut idx_sql = String::new();
-    sync_indexes(&source.indexes, &target.indexes, d, &mut idx_sql, &mut changes);
-    if !idx_sql.is_empty() {
-        let _ = write!(body, "-- ─── Índices ───\n{idx_sql}\n");
+    {
+        let src: BTreeMap<String, &Index> = source.indexes.iter().map(|i| (index_key(i), i)).collect();
+        let tgt: BTreeMap<String, &Index> = target.indexes.iter().map(|i| (index_key(i), i)).collect();
+        for (k, i) in &src {
+            match tgt.get(k) {
+                None => units.push(ScriptUnit::new("Índice", k.clone(), OnlyInLeft, "Índices", create_index(d, i))),
+                Some(ti) if !same_index(i, ti) => units.push(ScriptUnit::new("Índice", k.clone(), Different, "Índices", format!("{}\n{}", drop_index(d, ti), create_index(d, i)))),
+                _ => {}
+            }
+        }
+        for (k, ti) in &tgt {
+            if !src.contains_key(k) {
+                units.push(ScriptUnit::new("Índice", k.clone(), OnlyInRight, "Índices", drop_index(d, ti)));
+            }
+        }
     }
 
     // ── Claves foráneas ──
-    let mut fk_sql = String::new();
-    sync_foreign_keys(&source.foreign_keys, &target.foreign_keys, d, &mut fk_sql, &mut changes);
-    if !fk_sql.is_empty() {
-        let _ = write!(body, "-- ─── Claves foráneas ───\n{fk_sql}\n");
+    {
+        let src: BTreeMap<String, &ForeignKey> = source.foreign_keys.iter().map(|f| (f.name.clone(), f)).collect();
+        let tgt: BTreeMap<String, &ForeignKey> = target.foreign_keys.iter().map(|f| (f.name.clone(), f)).collect();
+        for (k, f) in &src {
+            match tgt.get(k) {
+                None => units.push(ScriptUnit::new("Clave foránea", k.clone(), OnlyInLeft, "Claves foráneas", add_fk(d, f))),
+                Some(tf) if !same_fk(f, tf) => units.push(ScriptUnit::new("Clave foránea", k.clone(), Different, "Claves foráneas", format!("{}\n{}", drop_fk(d, tf), add_fk(d, f)))),
+                _ => {}
+            }
+        }
+        for (k, tf) in &tgt {
+            if !src.contains_key(k) {
+                units.push(ScriptUnit::new("Clave foránea", k.clone(), OnlyInRight, "Claves foráneas", drop_fk(d, tf)));
+            }
+        }
     }
 
     // ── Restricciones CHECK ──
-    let mut chk_sql = String::new();
-    sync_checks(&source.checks, &target.checks, d, &mut chk_sql, &mut changes);
-    if !chk_sql.is_empty() {
-        let _ = write!(body, "-- ─── Restricciones CHECK ───\n{chk_sql}\n");
+    {
+        let src: BTreeMap<String, &CheckConstraint> = source.checks.iter().map(|c| (c.name.clone(), c)).collect();
+        let tgt: BTreeMap<String, &CheckConstraint> = target.checks.iter().map(|c| (c.name.clone(), c)).collect();
+        for (k, c) in &src {
+            match tgt.get(k) {
+                None => units.push(ScriptUnit::new("Restricción", k.clone(), OnlyInLeft, "Restricciones CHECK", add_check(d, c))),
+                Some(tc) if normalize(&c.definition) != normalize(&tc.definition) => units.push(ScriptUnit::new("Restricción", k.clone(), Different, "Restricciones CHECK", format!("{}\n{}", drop_check(d, tc), add_check(d, c)))),
+                _ => {}
+            }
+        }
+        for (k, tc) in &tgt {
+            if !src.contains_key(k) {
+                units.push(ScriptUnit::new("Restricción", k.clone(), OnlyInRight, "Restricciones CHECK", drop_check(d, tc)));
+            }
+        }
     }
 
     // ── Vistas / Procedimientos / Funciones ──
-    let mut routines = String::new();
-    routine_section(d, &source.views, &target.views, &mut routines, &mut changes);
-    routine_section(d, &source.procedures, &target.procedures, &mut routines, &mut changes);
-    routine_section(d, &source.functions, &target.functions, &mut routines, &mut changes);
-    if !routines.is_empty() {
-        let _ = write!(body, "-- ─── Vistas / Procedimientos / Funciones ───\n{routines}\n");
-    }
+    routine_units(d, "Vista", &source.views, &target.views, &mut units);
+    routine_units(d, "Procedimiento", &source.procedures, &target.procedures, &mut units);
+    routine_units(d, "Función", &source.functions, &target.functions, &mut units);
 
-    // ── Tablas a eliminar en el destino ──
-    let mut drops = String::new();
+    // ── Tablas eliminadas en el destino ──
     for t in &target.tables {
         if !src_tnames.contains(&t.qualified_name()) {
-            let _ = writeln!(drops, "DROP TABLE IF EXISTS {};", d.qname(&t.schema, &t.name));
-            changes += 1;
+            units.push(ScriptUnit::new("Tabla", t.qualified_name(), OnlyInRight, "Tablas eliminadas en el destino", format!("DROP TABLE IF EXISTS {};", d.qname(&t.schema, &t.name))));
         }
     }
-    if !drops.is_empty() {
-        let _ = write!(body, "-- ─── Tablas eliminadas en el destino ───\n{drops}\n");
-    }
 
-    // ── Encabezado + salida ──
+    units
+}
+
+/// Encabezado común del script (comentarios de advertencia).
+fn script_header(d: Dialect) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "-- ============================================================");
     let _ = writeln!(out, "-- Script de sincronización generado por DataDiff");
     let _ = writeln!(out, "-- Deja el DESTINO (B) igual que el ORIGEN (A)");
     let _ = writeln!(out, "-- Motor destino: {}", d.label());
     let _ = writeln!(out, "-- (!) Revísalo y respalda el destino antes de ejecutarlo.");
-    let _ = writeln!(out, "-- ============================================================\n");
+    let _ = writeln!(out, "-- ============================================================");
+    out
+}
 
-    if changes == 0 {
+/// Genera el script SQL completo que transforma el esquema `target` (B) en
+/// `source` (A), componiendo todas las unidades (sin filtrar).
+pub fn generate_sync_script(source: &Schema, target: &Schema, d: Dialect) -> String {
+    let units = generate_sync_units(source, target, d);
+    let mut out = script_header(d);
+    out.push('\n');
+
+    if units.is_empty() {
         let _ = writeln!(out, "-- Sin diferencias: el destino ya coincide con el origen.");
-    } else {
-        out.push_str(&body);
+        return out;
+    }
+
+    let mut section: &str = "";
+    for u in &units {
+        if u.section != section {
+            let _ = write!(out, "-- ─── {} ───\n", u.section);
+            section = u.section.as_str();
+        }
+        out.push_str(&u.sql);
+        out.push_str("\n\n");
     }
     out
 }
@@ -555,5 +546,32 @@ mod tests {
         let b = Schema { tables: vec![t], ..Default::default() };
         let s = generate_sync_script(&a, &b, Dialect::SqlServer);
         assert!(s.contains("Sin diferencias"), "{s}");
+    }
+
+    #[test]
+    fn unidades_usan_la_misma_clave_que_el_diff() {
+        use crate::model::Index;
+        // La clave (object_type, name) de cada unidad debe coincidir con la fila
+        // del diff para que la interfaz pueda casarlas y permitir la selección.
+        let a = Schema {
+            tables: vec![table("Clientes", vec![col("Id", "int", false)])],
+            indexes: vec![Index { name: "ix1".into(), table: "dbo.Clientes".into(), columns: vec!["Id".into()], is_unique: false }],
+            ..Default::default()
+        };
+        let units = generate_sync_units(&a, &Schema::default(), Dialect::SqlServer);
+        let tabla = units.iter().find(|u| u.object_type == "Tabla").expect("unidad de tabla");
+        assert_eq!(tabla.name, "dbo.Clientes");
+        assert!(tabla.sql.contains("CREATE TABLE [dbo].[Clientes]"), "{}", tabla.sql);
+        let idx = units.iter().find(|u| u.object_type == "Índice").expect("unidad de índice");
+        assert_eq!(idx.name, "dbo.Clientes.ix1"); // = tabla.nombre_del_índice, igual que en diff.rs
+    }
+
+    #[test]
+    fn script_compuesto_equivale_a_unir_unidades() {
+        let a = Schema { tables: vec![table("Nueva", vec![col("Id", "int", false)])], ..Default::default() };
+        let b = Schema { tables: vec![table("Vieja", vec![col("Id", "int", false)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("CREATE TABLE [dbo].[Nueva]"), "{s}");
+        assert!(s.contains("DROP TABLE IF EXISTS [dbo].[Vieja]"), "{s}");
     }
 }
