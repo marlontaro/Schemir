@@ -17,6 +17,12 @@ src-tauri/icons/ios/
 *.sqlite
 *.sqlite3
 
+# Exportaciones de prueba generadas por la app (diagramas, informes, scripts)
+/ejemplos/*.png
+/ejemplos/*.svg
+/ejemplos/*.html
+/ejemplos/*.sql
+
 # SO / editores
 .DS_Store
 .idea/
