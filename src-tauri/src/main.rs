@@ -4,8 +4,8 @@
 mod db;
 
 use datadiff_core::{
-    compare_schemas, generate_sync_script, generate_sync_units, to_diagram_model, to_diff_diagram,
-    ComparisonResult, Dialect, DiagramModel, ScriptUnit,
+    compare_schemas_opts, generate_sync_script_opts, generate_sync_units_opts, to_diagram_model,
+    to_diff_diagram, CompareOptions, ComparisonResult, Dialect, DiagramModel, ScriptUnit,
 };
 use db::{ConnectionConfig, EngineKind};
 use serde::Serialize;
@@ -36,7 +36,9 @@ fn dialect_of(engine: EngineKind) -> Dialect {
 async fn compare_databases(
     left: ConnectionConfig,
     right: ConnectionConfig,
+    options: Option<CompareOptions>,
 ) -> Result<CompareOutput, String> {
+    let opts = options.unwrap_or_default();
     let source = db::read_schema(&left)
         .await
         .map_err(|e| format!("ORIGEN (A): {e}"))?;
@@ -44,10 +46,10 @@ async fn compare_databases(
         .await
         .map_err(|e| format!("DESTINO (B): {e}"))?;
 
-    let comparison = compare_schemas(&source, &target);
+    let comparison = compare_schemas_opts(&source, &target, &opts);
     let dialect = dialect_of(right.engine);
-    let script = generate_sync_script(&source, &target, dialect);
-    let script_units = generate_sync_units(&source, &target, dialect);
+    let script = generate_sync_script_opts(&source, &target, dialect, &opts);
+    let script_units = generate_sync_units_opts(&source, &target, dialect, &opts);
     let diagram_a = to_diagram_model(&source);
     let diagram_b = to_diagram_model(&target);
     let diagram_diff = to_diff_diagram(&source, &target);

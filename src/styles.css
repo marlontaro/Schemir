@@ -240,6 +240,19 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .compare-bar .btn.primary { font-size: 15px; padding: 13px 34px; border-radius: 11px; }
 .compare-hint { margin: 0; color: var(--muted); font-size: 12px; }
 
+/* ---------- Opciones de comparación ---------- */
+.options { margin-top: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.options > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 9px; padding: 13px 18px; font-weight: 600; font-size: 14px; color: var(--text); user-select: none; }
+.options > summary::-webkit-details-marker { display: none; }
+.options > summary svg { width: 17px; height: 17px; color: var(--muted); }
+.options > summary::after { content: "▾"; margin-left: auto; color: var(--muted); transition: transform 0.15s ease; }
+.options[open] > summary::after { transform: rotate(180deg); }
+.opt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; padding: 4px 18px 18px; }
+.opt-grid fieldset { border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 14px 12px; margin: 0; }
+.opt-grid legend { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 700; padding: 0 6px; }
+.opt-grid label { display: flex; flex-direction: row; align-items: center; gap: 9px; padding: 5px 0; font-size: 13px; color: var(--text); font-weight: 500; cursor: pointer; }
+.opt-grid input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); flex: 0 0 auto; }
+
 /* ---------- Results ---------- */
 .results { margin-top: 26px; animation: fade 0.3s ease; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }

@@ -75,18 +75,81 @@ pub struct Summary {
     pub equal: usize,
 }
 
+/// Opciones de comparación (al estilo de SSDT): qué ignorar y qué tipos comparar.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompareOptions {
+    /// Ignorar mayúsculas/minúsculas en definiciones y tipos de datos.
+    pub ignore_case: bool,
+    /// Colapsar los espacios en blanco de las definiciones.
+    pub ignore_whitespace: bool,
+    /// Quitar los comentarios SQL de las definiciones antes de comparar.
+    pub ignore_comments: bool,
+    /// Tratar las columnas como iguales aunque cambie su valor por defecto.
+    pub ignore_column_default: bool,
+    // Qué tipos de objeto comparar.
+    pub tables: bool,
+    pub views: bool,
+    pub procedures: bool,
+    pub functions: bool,
+    pub indexes: bool,
+    pub foreign_keys: bool,
+    pub checks: bool,
+    pub primary_keys: bool,
+}
+
+impl Default for CompareOptions {
+    fn default() -> Self {
+        CompareOptions {
+            ignore_case: true,
+            ignore_whitespace: true,
+            ignore_comments: false,
+            ignore_column_default: false,
+            tables: true,
+            views: true,
+            procedures: true,
+            functions: true,
+            indexes: true,
+            foreign_keys: true,
+            checks: true,
+            primary_keys: true,
+        }
+    }
+}
+
 /// Compara dos esquemas completos y devuelve todas las diferencias de objetos.
 pub fn compare_schemas(left: &Schema, right: &Schema) -> ComparisonResult {
+    compare_schemas_opts(left, right, &CompareOptions::default())
+}
+
+/// Igual que `compare_schemas`, pero con opciones (qué ignorar y qué comparar).
+pub fn compare_schemas_opts(left: &Schema, right: &Schema, o: &CompareOptions) -> ComparisonResult {
     let mut objects = Vec::new();
 
-    diff_tables(&left.tables, &right.tables, &mut objects);
-    diff_routines("Vista", &left.views, &right.views, &mut objects);
-    diff_routines("Procedimiento", &left.procedures, &right.procedures, &mut objects);
-    diff_routines("Función", &left.functions, &right.functions, &mut objects);
-    diff_primary_keys(&left.tables, &right.tables, &mut objects);
-    diff_indexes(&left.indexes, &right.indexes, &mut objects);
-    diff_foreign_keys(&left.foreign_keys, &right.foreign_keys, &mut objects);
-    diff_checks(&left.checks, &right.checks, &mut objects);
+    if o.tables {
+        diff_tables(&left.tables, &right.tables, o, &mut objects);
+    }
+    if o.views {
+        diff_routines("Vista", &left.views, &right.views, o, &mut objects);
+    }
+    if o.procedures {
+        diff_routines("Procedimiento", &left.procedures, &right.procedures, o, &mut objects);
+    }
+    if o.functions {
+        diff_routines("Función", &left.functions, &right.functions, o, &mut objects);
+    }
+    if o.primary_keys {
+        diff_primary_keys(&left.tables, &right.tables, &mut objects);
+    }
+    if o.indexes {
+        diff_indexes(&left.indexes, &right.indexes, &mut objects);
+    }
+    if o.foreign_keys {
+        diff_foreign_keys(&left.foreign_keys, &right.foreign_keys, &mut objects);
+    }
+    if o.checks {
+        diff_checks(&left.checks, &right.checks, o, &mut objects);
+    }
 
     // Orden estable y predecible: primero por tipo, luego por nombre.
     objects.sort_by(|a, b| a.object_type.cmp(&b.object_type).then(a.name.cmp(&b.name)));
@@ -104,7 +167,7 @@ fn union_keys<'a, T>(
     names
 }
 
-fn diff_tables(left: &[Table], right: &[Table], out: &mut Vec<ObjectDiff>) {
+fn diff_tables(left: &[Table], right: &[Table], o: &CompareOptions, out: &mut Vec<ObjectDiff>) {
     let left_map: BTreeMap<String, &Table> =
         left.iter().map(|t| (t.qualified_name(), t)).collect();
     let right_map: BTreeMap<String, &Table> =
@@ -125,7 +188,7 @@ fn diff_tables(left: &[Table], right: &[Table], out: &mut Vec<ObjectDiff>) {
                 details: vec![],
             },
             (Some(l), Some(r)) => {
-                let details = diff_columns(&l.columns, &r.columns);
+                let details = diff_columns(&l.columns, &r.columns, o);
                 let status = if details.is_empty() {
                     DiffStatus::Equal
                 } else {
@@ -139,7 +202,7 @@ fn diff_tables(left: &[Table], right: &[Table], out: &mut Vec<ObjectDiff>) {
     }
 }
 
-fn diff_columns(left: &[Column], right: &[Column]) -> Vec<FieldDiff> {
+fn diff_columns(left: &[Column], right: &[Column], o: &CompareOptions) -> Vec<FieldDiff> {
     let left_map: BTreeMap<String, &Column> =
         left.iter().map(|c| (c.name.clone(), c)).collect();
     let right_map: BTreeMap<String, &Column> =
@@ -158,7 +221,7 @@ fn diff_columns(left: &[Column], right: &[Column]) -> Vec<FieldDiff> {
                 left: None,
                 right: Some(describe_column(r)),
             }),
-            (Some(l), Some(r)) if !same_column(l, r) => diffs.push(FieldDiff {
+            (Some(l), Some(r)) if !columns_equal(l, r, o) => diffs.push(FieldDiff {
                 field: format!("columna: {name}"),
                 left: Some(describe_column(l)),
                 right: Some(describe_column(r)),
@@ -171,10 +234,15 @@ fn diff_columns(left: &[Column], right: &[Column]) -> Vec<FieldDiff> {
 
 /// Dos columnas son "iguales" si coinciden tipo, nulabilidad y valor por defecto.
 /// La posición (`ordinal`) no se compara para no generar ruido por reordenamientos.
-fn same_column(a: &Column, b: &Column) -> bool {
-    a.data_type == b.data_type
-        && a.is_nullable == b.is_nullable
-        && a.default_value == b.default_value
+/// Las opciones permiten ignorar may/min del tipo y el valor por defecto.
+pub(crate) fn columns_equal(a: &Column, b: &Column, o: &CompareOptions) -> bool {
+    let type_eq = if o.ignore_case {
+        a.data_type.eq_ignore_ascii_case(&b.data_type)
+    } else {
+        a.data_type == b.data_type
+    };
+    let default_eq = o.ignore_column_default || a.default_value == b.default_value;
+    type_eq && a.is_nullable == b.is_nullable && default_eq
 }
 
 fn describe_column(c: &Column) -> String {
@@ -185,7 +253,7 @@ fn describe_column(c: &Column) -> String {
     }
 }
 
-fn diff_routines(type_label: &str, left: &[Routine], right: &[Routine], out: &mut Vec<ObjectDiff>) {
+fn diff_routines(type_label: &str, left: &[Routine], right: &[Routine], o: &CompareOptions, out: &mut Vec<ObjectDiff>) {
     let left_map: BTreeMap<String, &Routine> =
         left.iter().map(|r| (r.qualified_name(), r)).collect();
     let right_map: BTreeMap<String, &Routine> =
@@ -206,7 +274,7 @@ fn diff_routines(type_label: &str, left: &[Routine], right: &[Routine], out: &mu
                 details: vec![],
             },
             (Some(l), Some(r)) => {
-                let same = normalize_sql(&l.definition) == normalize_sql(&r.definition);
+                let same = normalize_def(&l.definition, o) == normalize_def(&r.definition, o);
                 let details = if same {
                     vec![]
                 } else {
@@ -284,7 +352,7 @@ fn diff_foreign_keys(left: &[ForeignKey], right: &[ForeignKey], out: &mut Vec<Ob
 }
 
 /// Compara restricciones CHECK por nombre.
-fn diff_checks(left: &[CheckConstraint], right: &[CheckConstraint], out: &mut Vec<ObjectDiff>) {
+fn diff_checks(left: &[CheckConstraint], right: &[CheckConstraint], o: &CompareOptions, out: &mut Vec<ObjectDiff>) {
     let lm: BTreeMap<String, &CheckConstraint> = left.iter().map(|c| (c.name.clone(), c)).collect();
     let rm: BTreeMap<String, &CheckConstraint> = right.iter().map(|c| (c.name.clone(), c)).collect();
     for name in union_keys(&lm, &rm) {
@@ -292,7 +360,7 @@ fn diff_checks(left: &[CheckConstraint], right: &[CheckConstraint], out: &mut Ve
             (Some(_), None) => ObjectDiff { object_type: "Restricción".into(), name, status: DiffStatus::OnlyInLeft, details: vec![] },
             (None, Some(_)) => ObjectDiff { object_type: "Restricción".into(), name, status: DiffStatus::OnlyInRight, details: vec![] },
             (Some(l), Some(r)) => {
-                let same = normalize_sql(&l.definition) == normalize_sql(&r.definition);
+                let same = normalize_def(&l.definition, o) == normalize_def(&r.definition, o);
                 let details = if same { vec![] } else { vec![FieldDiff { field: "definición".into(), left: Some(l.definition.clone()), right: Some(r.definition.clone()) }] };
                 let status = if same { DiffStatus::Equal } else { DiffStatus::Different };
                 ObjectDiff { object_type: "Restricción".into(), name, status, details }
@@ -335,10 +403,63 @@ fn diff_primary_keys(left: &[Table], right: &[Table], out: &mut Vec<ObjectDiff>)
     }
 }
 
-/// Normaliza el cuerpo SQL para comparar ignorando diferencias triviales de
-/// espacios en blanco, saltos de línea y mayúsculas/minúsculas.
-fn normalize_sql(sql: &str) -> String {
-    sql.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+/// Normaliza una definición SQL para compararla según las opciones activas
+/// (quitar comentarios, colapsar espacios e ignorar may/min).
+pub(crate) fn normalize_def(sql: &str, o: &CompareOptions) -> String {
+    let mut s = if o.ignore_comments {
+        strip_sql_comments(sql)
+    } else {
+        sql.to_string()
+    };
+    s = if o.ignore_whitespace {
+        s.split_whitespace().collect::<Vec<_>>().join(" ")
+    } else {
+        s.trim().to_string()
+    };
+    if o.ignore_case {
+        s = s.to_lowercase();
+    }
+    s
+}
+
+/// Quita los comentarios SQL (`-- …` de línea y `/* … */` de bloque), respetando
+/// las cadenas entre comillas simples para no borrar texto dentro de ellas.
+fn strip_sql_comments(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    let mut in_str = false;
+    while let Some(c) = chars.next() {
+        if in_str {
+            out.push(c);
+            if c == '\'' {
+                in_str = false;
+            }
+        } else if c == '\'' {
+            in_str = true;
+            out.push(c);
+        } else if c == '-' && chars.peek() == Some(&'-') {
+            // Comentario de línea: salta hasta el fin de línea (conserva el salto).
+            for n in chars.by_ref() {
+                if n == '\n' {
+                    out.push('\n');
+                    break;
+                }
+            }
+        } else if c == '/' && chars.peek() == Some(&'*') {
+            // Comentario de bloque: salta hasta "*/".
+            chars.next();
+            let mut prev_star = false;
+            for n in chars.by_ref() {
+                if prev_star && n == '/' {
+                    break;
+                }
+                prev_star = n == '*';
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -457,5 +578,34 @@ mod tests {
         let r = compare_schemas(&left, &right);
         let fk = r.objects.iter().find(|o| o.object_type == "Clave foránea").unwrap();
         assert_eq!(fk.status, DiffStatus::Different);
+    }
+
+    #[test]
+    fn opcion_ignorar_mayusculas_en_tipos() {
+        let left = Schema { tables: vec![table("C", vec![col("Id", "INT", false)])], ..Default::default() };
+        let right = Schema { tables: vec![table("C", vec![col("Id", "int", false)])], ..Default::default() };
+        // Con ignore_case (por defecto) son iguales; sin él, distintas.
+        assert_eq!(compare_schemas(&left, &right).objects[0].status, DiffStatus::Equal);
+        let strict = CompareOptions { ignore_case: false, ..Default::default() };
+        assert_eq!(compare_schemas_opts(&left, &right, &strict).objects[0].status, DiffStatus::Different);
+    }
+
+    #[test]
+    fn opcion_ignorar_comentarios() {
+        let a = Schema { procedures: vec![proc("sp", "CREATE PROC sp AS SELECT 1 -- activo")], ..Default::default() };
+        let b = Schema { procedures: vec![proc("sp", "CREATE PROC sp AS SELECT 1 -- inactivo")], ..Default::default() };
+        // Por defecto el comentario cuenta → distintas; ignorándolos → iguales.
+        assert_eq!(compare_schemas(&a, &b).objects[0].status, DiffStatus::Different);
+        let o = CompareOptions { ignore_comments: true, ..Default::default() };
+        assert_eq!(compare_schemas_opts(&a, &b, &o).objects[0].status, DiffStatus::Equal);
+    }
+
+    #[test]
+    fn opcion_filtra_tipos_de_objeto() {
+        let left = Schema { tables: vec![table("Solo", vec![])], ..Default::default() };
+        // Sin comparar tablas, no debe reportar ningún objeto de tipo "Tabla".
+        let o = CompareOptions { tables: false, ..Default::default() };
+        let r = compare_schemas_opts(&left, &Schema::default(), &o);
+        assert!(r.objects.iter().all(|x| x.object_type != "Tabla"));
     }
 }

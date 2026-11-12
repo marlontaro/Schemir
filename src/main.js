@@ -38,6 +38,21 @@ const I18N = {
     "btn.saveSql": "Guardar .sql",
     "status.testing": "Probando…",
     "compare.hint": "Prueba las conexiones de A y B para habilitar la comparación.",
+    "opt.title": "Opciones de comparación",
+    "opt.ignore": "Ignorar",
+    "opt.case": "Mayúsculas/minúsculas",
+    "opt.whitespace": "Espacios en blanco",
+    "opt.comments": "Comentarios",
+    "opt.colDefault": "Valor por defecto de columnas",
+    "opt.compare": "Comparar",
+    "opt.tables": "Tablas",
+    "opt.views": "Vistas",
+    "opt.procedures": "Procedimientos",
+    "opt.functions": "Funciones",
+    "opt.indexes": "Índices",
+    "opt.fks": "Claves foráneas",
+    "opt.checks": "Restricciones CHECK",
+    "opt.pks": "Claves primarias",
     "step.connection": "Conexión",
     "step.comparison": "Comparación",
     "btn.back": "← Conexión",
@@ -127,6 +142,21 @@ const I18N = {
     "btn.saveSql": "Save .sql",
     "status.testing": "Testing…",
     "compare.hint": "Test both A and B connections to enable the comparison.",
+    "opt.title": "Comparison options",
+    "opt.ignore": "Ignore",
+    "opt.case": "Case",
+    "opt.whitespace": "Whitespace",
+    "opt.comments": "Comments",
+    "opt.colDefault": "Column default value",
+    "opt.compare": "Compare",
+    "opt.tables": "Tables",
+    "opt.views": "Views",
+    "opt.procedures": "Procedures",
+    "opt.functions": "Functions",
+    "opt.indexes": "Indexes",
+    "opt.fks": "Foreign keys",
+    "opt.checks": "CHECK constraints",
+    "opt.pks": "Primary keys",
     "step.connection": "Connection",
     "step.comparison": "Comparison",
     "btn.back": "← Connection",
@@ -317,6 +347,32 @@ let diaSide = "diff";
 let comparing = false;
 const activeFilters = new Set(["only_in_left", "only_in_right", "different"]);
 let searchText = "";
+
+// Opciones de comparación (persistidas); los nombres coinciden con Rust CompareOptions.
+const DEFAULT_OPTIONS = {
+  ignore_case: true, ignore_whitespace: true, ignore_comments: false, ignore_column_default: false,
+  tables: true, views: true, procedures: true, functions: true, indexes: true, foreign_keys: true, checks: true, primary_keys: true,
+};
+let compareOptions = (() => {
+  try {
+    return { ...DEFAULT_OPTIONS, ...JSON.parse(localStorage.getItem("datadiff.options") || "{}") };
+  } catch {
+    return { ...DEFAULT_OPTIONS };
+  }
+})();
+
+/** Refleja las opciones guardadas en las casillas y las persiste al cambiarlas. */
+function setupOptions() {
+  document.querySelectorAll("#cmp-options input[data-opt]").forEach((cb) => {
+    cb.checked = !!compareOptions[cb.dataset.opt];
+    cb.addEventListener("change", () => {
+      compareOptions[cb.dataset.opt] = cb.checked;
+      try {
+        localStorage.setItem("datadiff.options", JSON.stringify(compareOptions));
+      } catch {}
+    });
+  });
+}
 
 // ===========================================================================
 // Selector de motor por tarjeta
@@ -529,7 +585,7 @@ compareBtn.addEventListener("click", async () => {
   compareBtn.disabled = true;
   compareBtn.textContent = t("btn.comparing");
   try {
-    const result = await invoke("compare_databases", { left: readConfig("a"), right: readConfig("b") });
+    const result = await invoke("compare_databases", { left: readConfig("a"), right: readConfig("b"), options: compareOptions });
     rememberConn(readConfig("a"));
     rememberConn(readConfig("b"));
     lastObjects = result.comparison?.objects || [];
@@ -1431,4 +1487,5 @@ if (!window.__TAURI__?.core?.invoke) {
   document.getElementById("no-backend").hidden = false;
 }
 
+setupOptions();
 applyI18n();
