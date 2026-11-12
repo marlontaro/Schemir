@@ -3,7 +3,7 @@
 
 mod db;
 
-use datadiff_core::{
+use schemir_core::{
     compare_schemas_opts, compare_table_data, generate_sync_script_opts, generate_sync_units_opts,
     to_diagram_model, to_diff_diagram_opts, CompareOptions, ComparisonResult, DataComparison,
     Dialect, DiagramModel, ScriptUnit,
@@ -124,5 +124,5 @@ fn main() {
             compare_data
         ])
         .run(tauri::generate_context!())
-        .expect("error al iniciar DataDiff");
+        .expect("error al iniciar Schemir");
 }

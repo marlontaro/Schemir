@@ -336,7 +336,7 @@ fn row_values_differ(left: &DataTable, right: &DataTable, lrow: &[Option<String>
 fn assemble_dml(d: Dialect, dt: &DataTable, inserts: &str, updates: &str, deletes: &str, cmp: &DataComparison) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "-- ============================================================");
-    let _ = writeln!(out, "-- Sincronización de DATOS generada por DataDiff");
+    let _ = writeln!(out, "-- Sincronización de DATOS generada por Schemir");
     let _ = writeln!(out, "-- Tabla: {}  ·  Motor destino: {}", dt.table, d.label());
     let _ = writeln!(out, "-- Deja los datos del DESTINO (B) iguales que los del ORIGEN (A)");
     let _ = writeln!(out, "-- (!) Revísalo y respalda el destino antes de ejecutarlo.");

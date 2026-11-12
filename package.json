@@ -1,8 +1,8 @@
 {
-  "name": "datadiff",
+  "name": "schemir",
   "version": "0.1.0",
   "private": true,
-  "description": "DataDiff — comparador de objetos de base de datos (SQL Server, SQLite y luego PostgreSQL)",
+  "description": "Schemir — comparador de objetos de base de datos (SQL Server, SQLite y luego PostgreSQL)",
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",

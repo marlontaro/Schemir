@@ -1,89 +1,105 @@
-# DataDiff
+# Schemir
 
-> Comparador de **esquema y datos** de bases de datos — multiplataforma y multi-motor.
-> Una alternativa open source a **SSDT Schema Compare**, hecha con **Rust + Tauri**.
+> Cross-platform **database schema & data** comparator — multi-engine and open source.
+> A free alternative to **SSDT Schema Compare**, built with **Rust + Tauri**.
 
-[![CI](https://github.com/marlontaro/DataDiff/actions/workflows/ci.yml/badge.svg)](https://github.com/marlontaro/DataDiff/actions/workflows/ci.yml)
-[![Última versión](https://img.shields.io/github/v/release/marlontaro/DataDiff?label=versi%C3%B3n&color=blue)](https://github.com/marlontaro/DataDiff/releases/latest)
+[![CI](https://github.com/marlontaro/Schemir/actions/workflows/ci.yml/badge.svg)](https://github.com/marlontaro/Schemir/actions/workflows/ci.yml)
+[![Latest version](https://img.shields.io/github/v/release/marlontaro/Schemir?label=version&color=blue)](https://github.com/marlontaro/Schemir/releases/latest)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
 ![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?logo=tauri&logoColor=white)
-![Plataformas](https://img.shields.io/badge/macOS_·_Windows_·_Linux-informational)
+![Platforms](https://img.shields.io/badge/macOS_·_Windows_·_Linux-informational)
 
-DataDiff conecta a dos bases de datos (A = origen, B = destino), compara sus **objetos**
-(estructura) y sus **datos**, y te muestra qué sobra, qué falta y qué difiere entre A y B.
-Genera el **script de sincronización** para dejar B igual que A, dibuja un **diagrama
-entidad-relación** interactivo e incluye un **diseñador** para crear modelos y exportarlos
-a SQL y Prisma.
+**Schemir** connects to two databases (A = source, B = target), compares their **objects**
+(structure) and their **data**, and shows you what is extra, missing or different between A
+and B. It generates the **sync script** to make B match A, draws an interactive
+**entity-relationship diagram**, and includes a **designer** to build models and export them
+to SQL and Prisma.
 
----
-
-## 📸 Capturas
-
-**Comparación de objetos** — resumen por estado y detalle por objeto:
-
-![Comparación de objetos](docs/img/comparacion.png)
-
-**Diagrama de diferencias** — interactivo (zoom, desplazamiento, arrastrar, pantalla completa):
-
-![Diagrama ER de diferencias](docs/img/diagrama.png)
-
-**Diseñador ER** — crea un modelo y expórtalo a SQL / Prisma:
-
-![Diseñador de diagramas ER](docs/img/disenador.png)
+The name is **Schema + Mirror** — read two schemas, make one mirror the other.
 
 ---
 
-## ✨ Características
+## 📥 Download
 
-**Comparar**
-- 🔌 **Tres motores:** SQL Server, PostgreSQL y SQLite.
-- 🧱 **Todos los objetos:** tablas y columnas (tipo, nulabilidad, *default*), vistas,
-  procedimientos, funciones, **claves primarias y foráneas, índices, restricciones CHECK
-  y disparadores (triggers)**.
-- 🎛️ **Opciones de comparación** (estilo SSDT): ignorar mayúsculas/minúsculas, espacios,
-  comentarios y el valor por defecto de columnas; y elegir **qué tipos de objeto** comparar.
-- 🗂️ **Multiesquema:** lee y compara todos los esquemas (`dbo`, `public`, los que tengas).
-- 📊 **Comparar datos de filas** (SQLite): empareja por clave primaria y reporta filas solo
-  en A / solo en B / distintas, con su DML (`INSERT` / `UPDATE` / `DELETE`).
+Grab the installer for your OS from the [**latest release**](https://github.com/marlontaro/Schemir/releases/latest):
 
-**Sincronizar**
-- 📝 **Script de sincronización** (`CREATE` / `ALTER` / `DROP`) consciente del dialecto,
-  con **sincronización selectiva**: marca/desmarca qué objetos entran. Copiar y guardar `.sql`.
-- ⚡ **Aplicar al destino** desde la app, con confirmación y en una **transacción** (solo lo marcado).
+| OS | Files |
+|---|---|
+| 🍎 **macOS** (Apple Silicon) | `.dmg` |
+| 🪟 **Windows** | `.msi` · `.exe` |
+| 🐧 **Linux** | `.AppImage` · `.deb` · `.rpm` |
 
-**Visualizar y diseñar**
-- 🗺️ **Diagrama ER** con renderizador propio (dagre): encabezados **Campo · Tipo · Clave**,
-  marcas 🔑 PK / 🔗 FK, relaciones, y un **diagrama de diferencias a color**. Interactivo
-  (zoom, desplazamiento, arrastrar tablas, pantalla completa) y **exportable a PNG / SVG**.
-- 🎨 **Diseñador ER:** crea un modelo desde cero (tablas, columnas con PK/NOT NULL y
-  relaciones) y expórtalo a **SQL** (SQL Server / PostgreSQL / SQLite) y a **Prisma**.
-- 📄 **Informe de diferencias** en HTML (imprimible a PDF) con resumen, detalle y script.
+> The macOS build is currently unsigned — right-click → **Open** the first time.
 
-**Comodidad**
-- 💾 **Conexiones recientes** y **guardar / abrir una comparación** (`.ddcmp`) — nunca se
-  guardan contraseñas.
-- 🌐 **Bilingüe ES / EN** y 🌗 **tema claro / oscuro / sistema**.
-- 🔒 Habilita la comparación solo cuando **ambas conexiones** están probadas; apertura en
-  **solo lectura** (nunca modifica tus bases salvo que pulses *Aplicar*).
+---
 
-## 🔌 Motores soportados
+## 📸 Screenshots
 
-| Motor | Driver | Esquema | Datos |
+**Object comparison** — summary by status and per-object detail:
+
+![Object comparison](docs/img/comparacion.png)
+
+**Difference diagram** — interactive (zoom, pan, drag, fullscreen):
+
+![ER difference diagram](docs/img/diagrama.png)
+
+**ER designer** — build a model and export it to SQL / Prisma:
+
+![ER diagram designer](docs/img/disenador.png)
+
+---
+
+## ✨ Features
+
+**Compare**
+- 🔌 **Three engines:** SQL Server, PostgreSQL and SQLite.
+- 🧱 **Every object:** tables and columns (type, nullability, *default*), views, procedures,
+  functions, **primary & foreign keys, indexes, CHECK constraints and triggers**.
+- 🎛️ **Comparison options** (SSDT-style): ignore case, whitespace, comments and column
+  defaults; and choose **which object types** to compare.
+- 🗂️ **Multi-schema:** reads and compares every schema (`dbo`, `public`, whatever you have).
+- 📊 **Row-data comparison** (SQLite): matches by primary key and reports rows only in A /
+  only in B / different, with their DML (`INSERT` / `UPDATE` / `DELETE`).
+
+**Synchronize**
+- 📝 **Sync script** (`CREATE` / `ALTER` / `DROP`), dialect-aware, with **selective sync**:
+  check/uncheck which objects go in. Copy or save as `.sql`.
+- ⚡ **Apply to target** from the app, with confirmation and inside a **transaction** (only
+  the checked objects).
+
+**Visualize & design**
+- 🗺️ **ER diagram** with a custom renderer (dagre): **Field · Type · Key** headers, 🔑 PK /
+  🔗 FK marks, relationships, and a **color-coded difference diagram**. Interactive (zoom,
+  pan, drag tables, fullscreen) and **exportable to PNG / SVG**.
+- 🎨 **ER designer:** build a model from scratch (tables, columns with PK/NOT NULL and
+  relationships) and export it to **SQL** (SQL Server / PostgreSQL / SQLite) and **Prisma**.
+- 📄 **Difference report** in HTML (printable to PDF) with summary, detail and script.
+
+**Comfort**
+- 💾 **Recent connections** and **save / open a comparison** (`.ddcmp`) — passwords are never
+  stored.
+- 🌐 **Bilingual ES / EN** (auto-detects your system language) and 🌗 **light / dark / system**
+  theme.
+- 🔒 Comparison is enabled only when **both connections** test OK; databases are opened
+  **read-only** (never modified unless you press *Apply*).
+
+## 🔌 Supported engines
+
+| Engine | Driver | Schema | Data |
 |---|---|:--:|:--:|
 | **SQL Server** | `tiberius` | ✅ | — |
 | **PostgreSQL** | `tokio-postgres` (TLS) | ✅ | — |
 | **SQLite** | `rusqlite` (bundled) | ✅ | ✅ |
 
-> La comparación de **datos** está disponible hoy para **SQLite** (verificada con pruebas);
-> la lógica es agnóstica al motor, así que extenderla a SQL Server / PostgreSQL es solo
-> añadir su lectura de filas.
+> **Data** comparison ships today for **SQLite** (covered by tests); the logic is
+> engine-agnostic, so extending it to SQL Server / PostgreSQL is just adding their row reader.
 
 ---
 
-## 🚀 Puesta en marcha (desarrollo)
+## 🚀 Getting started (development)
 
-Requisitos: **Rust** (reciente, para Tauri 2) y **Node** (para la CLI de Tauri).
+Requirements: **Rust** (recent, for Tauri 2) and **Node** (for the Tauri CLI).
 
 ```bash
 rustup update stable
@@ -95,12 +111,12 @@ npm install
 npm run tauri dev
 ```
 
-> La primera compilación tarda varios minutos (baja y compila Tauri y los drivers).
-> También puedes correr el binario directo: `cargo run --manifest-path src-tauri/Cargo.toml`.
+> The first build takes a few minutes (it downloads and compiles Tauri and the drivers).
+> You can also run the binary directly: `cargo run --manifest-path src-tauri/Cargo.toml`.
 
-### Probar rápido con SQLite (sin servidor)
+### Quick test with SQLite (no server)
 
-Crea dos bases de ejemplo con diferencias a propósito y compáralas (motor **SQLite**):
+Create two sample databases with intentional differences and compare them (**SQLite** engine):
 
 ```bash
 sqlite3 ejemplos/a.db "CREATE TABLE clientes(id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, email VARCHAR(50)); CREATE TABLE pedidos(id INTEGER PRIMARY KEY, cliente_id INTEGER REFERENCES clientes(id), total REAL); CREATE INDEX ix_pedidos_cliente ON pedidos(cliente_id); CREATE VIEW v_resumen AS SELECT cliente_id, COUNT(*) n FROM pedidos GROUP BY cliente_id;"
@@ -109,93 +125,99 @@ sqlite3 ejemplos/b.db "CREATE TABLE clientes(id INTEGER PRIMARY KEY, nombre TEXT
 
 ---
 
-## 🏗️ Arquitectura
+## 🏗️ Architecture
 
-La clave para soportar varios motores sin duplicar lógica: cada motor lee sus catálogos
-del sistema y los traduce a un **modelo común**. El diff, el script, el diagrama y la
-comparación de datos trabajan solo sobre ese modelo.
+The key to supporting several engines without duplicating logic: each engine reads its own
+system catalogs and translates them into a **common model**. The diff, the script, the
+diagram and the data comparison all work on that model alone.
 
 ```
   Driver (tiberius / tokio-postgres / rusqlite)
-        │  lee los catálogos del sistema
+        │  reads the system catalogs
         ▼
-  Introspección  →  Schema (modelo normalizado, en datadiff-core)
+  Introspection  →  Schema (normalized model, in schemir-core)
         │
-        ├─▶ Motor de diff      →  Solo en A · Solo en B · Diferente · Igual
-        ├─▶ Script de sync     →  CREATE / ALTER / DROP (por objeto, por dialecto)
-        ├─▶ Comparación de datos →  INSERT / UPDATE / DELETE (por clave primaria)
-        └─▶ Modelo de diagrama →  entidades + relaciones
+        ├─▶ Diff engine        →  Only in A · Only in B · Different · Equal
+        ├─▶ Sync script        →  CREATE / ALTER / DROP (per object, per dialect)
+        ├─▶ Data comparison    →  INSERT / UPDATE / DELETE (by primary key)
+        └─▶ Diagram model      →  entities + relationships
         ▼
-  Interfaz (Tauri + HTML/CSS/JS, bilingüe y con temas)
+  UI (Tauri + HTML/CSS/JS, bilingual and themeable)
 ```
 
-### Estructura del proyecto
+### Project layout
 
 ```
-DataDiff/
-├── crates/core/              # datadiff-core: lógica pura en Rust (con tests)
+Schemir/
+├── crates/core/              # schemir-core: pure Rust logic (with tests)
 │   └── src/
 │       ├── model.rs          #   Schema, Table, Column, Routine, ForeignKey, Index, Trigger…
 │       ├── diff.rs           #   compare_schemas_opts() + CompareOptions
 │       ├── script.rs         #   generate_sync_units_opts() / generate_sync_script_opts()
-│       ├── data.rs           #   compare_table_data() → DML de filas
+│       ├── data.rs           #   compare_table_data() → row DML
 │       └── diagram.rs        #   to_diagram_model() / to_diff_diagram_opts()
-├── src-tauri/                # app Tauri (backend Rust)
+├── src-tauri/                # Tauri app (Rust backend)
 │   └── src/
-│       ├── main.rs           #   comandos: compare_databases, compare_data, apply_script,
+│       ├── main.rs           #   commands: compare_databases, compare_data, apply_script,
 │       │                     #             test_connection, save/read_text_file, save_binary_file
 │       └── db/
-│           ├── mod.rs        #   ConnectionConfig + despacho por motor
-│           ├── sqlserver.rs  #   introspección SQL Server (tiberius)
-│           ├── postgres.rs   #   introspección PostgreSQL (tokio-postgres)
-│           └── sqlite.rs     #   introspección + lectura de datos (rusqlite)
-├── src/                      # frontend (HTML/CSS/JS, sin framework)
+│           ├── mod.rs        #   ConnectionConfig + per-engine dispatch
+│           ├── sqlserver.rs  #   SQL Server introspection (tiberius)
+│           ├── postgres.rs   #   PostgreSQL introspection (tokio-postgres)
+│           └── sqlite.rs     #   introspection + data reading (rusqlite)
+├── src/                      # frontend (HTML/CSS/JS, no framework)
 │   ├── index.html · styles.css · main.js
-│   └── vendor/dagre.min.js   #   layout del diagrama
-└── .github/workflows/ci.yml  # CI: compila y corre las pruebas en cada push
+│   └── vendor/dagre.min.js   #   diagram layout
+└── .github/workflows/        # CI (build + tests) and Release (installers)
 ```
 
 ### Tests
 
-El núcleo (modelo, diff, script, datos, diagrama) se prueba sin necesidad de ninguna base,
-y hay pruebas de integración que leen SQLite de verdad. **CI** los corre en cada push.
+The core (model, diff, script, data, diagram) is tested without any database, and there are
+integration tests that read real SQLite. **CI** runs them on every push.
 
 ```bash
-cargo test                                      # núcleo (datadiff-core)
-cargo test --manifest-path src-tauri/Cargo.toml # app + integración (SQLite)
+cargo test                                      # core (schemir-core)
+cargo test --manifest-path src-tauri/Cargo.toml # app + integration (SQLite)
 ```
 
 ---
 
-## 🗺️ Limitaciones y futuro
+## 🗺️ Roadmap & limitations
 
-- La **comparación de datos** cubre hoy **SQLite** (la de estructura, los tres motores).
-- **SQL Server y PostgreSQL** contra servidores reales están sin verificar end-to-end: el
-  código compila y se prueba con SQLite; las consultas a los catálogos podrían necesitar
-  algún ajuste al conectar a una base real.
-- PostgreSQL usa TLS cuando el servidor lo soporta y **confía en su certificado**; exigir la
-  validación de la CA sería una opción a añadir.
-- En SQLite, agregar o quitar una clave foránea requiere recrear la tabla, así que el script
-  lo marca con un comentario en lugar de generar el `ALTER` (SQL Server y Postgres sí lo generan).
+- **Data** comparison covers **SQLite** today (structure covers all three engines).
+- **SQL Server and PostgreSQL** against real servers are not yet verified end-to-end: the
+  code compiles and is tested with SQLite; the catalog queries may need tweaks against a real
+  database.
+- **Large tables:** data comparison currently loads up to **100k rows** into memory. Comparing
+  tables with **millions of rows** is planned via **streaming comparison by primary key + row
+  hashing** (constant memory, minimal data transfer) — schema comparison is unaffected.
+- PostgreSQL uses TLS when the server supports it and **trusts its certificate**; enforcing CA
+  validation is a planned option.
+- In SQLite, adding or dropping a foreign key requires rebuilding the table, so the script
+  marks it with a comment instead of emitting the `ALTER` (SQL Server and Postgres do emit it).
 
-En el radar: datos de filas en SQL Server / PostgreSQL, más objetos (secuencias, tipos de
-usuario), e instaladores para Windows (`.msi`) y Linux (`.AppImage`).
-
----
-
-## 🇬🇧 English
-
-DataDiff is an open-source, cross-platform **database schema & data comparator** — an
-alternative to SSDT Schema Compare, built with **Rust + Tauri**. It compares objects
-(tables, columns, views, procedures, functions, primary/foreign keys, indexes, CHECK
-constraints and triggers) across **SQL Server, PostgreSQL and SQLite**, with SSDT-style
-comparison options. It generates a dialect-aware **sync script** with **selective apply**,
-compares **row data** (SQLite) producing `INSERT`/`UPDATE`/`DELETE`, draws an **interactive
-ER diagram** (exportable to PNG/SVG), and ships an **ER designer** that exports to **SQL**
-and **Prisma**. The UI is bilingual (ES/EN) with light/dark/system themes.
+On the radar: row data for SQL Server / PostgreSQL, more objects (sequences, user-defined
+types), and a signed macOS build.
 
 ---
 
-## 📄 Licencia
+## 🇪🇸 Español
+
+**Schemir** es un comparador de **esquema y datos** de bases de datos, open source y
+multiplataforma — una alternativa a SSDT Schema Compare hecha con **Rust + Tauri**. Compara
+objetos (tablas, columnas, vistas, procedimientos, funciones, claves primarias/foráneas,
+índices, restricciones CHECK y disparadores) en **SQL Server, PostgreSQL y SQLite**, con
+opciones de comparación estilo SSDT. Genera un **script de sincronización** consciente del
+dialecto con **aplicación selectiva**, compara **datos de filas** (SQLite) produciendo
+`INSERT`/`UPDATE`/`DELETE`, dibuja un **diagrama ER interactivo** (exportable a PNG/SVG) e
+incluye un **diseñador ER** que exporta a **SQL** y **Prisma**. La interfaz es bilingüe
+(ES/EN, autodetecta el idioma del sistema) con tema claro/oscuro/sistema.
+
+Descarga el instalador de tu sistema desde la [**última versión**](https://github.com/marlontaro/Schemir/releases/latest).
+
+---
+
+## 📄 License
 
 [MIT](LICENSE) — © 2026 SOEN.

@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Permisos de DataDiff: comandos propios y diálogo para elegir archivos.",
+  "description": "Permisos de Schemir: comandos propios y diálogo para elegir archivos.",
   "windows": ["main"],
   "permissions": [
     "core:default",

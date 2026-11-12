@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// DataDiff — lógica de la interfaz (bilingüe ES/EN).
+// Schemir — lógica de la interfaz (bilingüe ES/EN).
 // Backend (Tauri): test_connection, compare_databases -> {comparison, script, diagram_a, diagram_b}, save_text_file.
 // ---------------------------------------------------------------------------
 
@@ -59,7 +59,7 @@ const I18N = {
     "cmp.open": "Abrir comparación…",
     "cmp.save": "Guardar comparación",
     "cmp.loaded": "✓ Comparación cargada. Reconecta (contraseñas) y compara.",
-    "cmp.invalid": "El archivo no es una comparación de DataDiff válida.",
+    "cmp.invalid": "El archivo no es una comparación de Schemir válida.",
     "opt.title": "Opciones de comparación",
     "opt.ignore": "Ignorar",
     "opt.case": "Mayúsculas/minúsculas",
@@ -204,7 +204,7 @@ const I18N = {
     "cmp.open": "Open comparison…",
     "cmp.save": "Save comparison",
     "cmp.loaded": "✓ Comparison loaded. Reconnect (passwords) and compare.",
-    "cmp.invalid": "The file is not a valid DataDiff comparison.",
+    "cmp.invalid": "The file is not a valid Schemir comparison.",
     "opt.title": "Comparison options",
     "opt.ignore": "Ignore",
     "opt.case": "Case",
@@ -302,10 +302,18 @@ const I18N = {
 };
 
 let lang = (() => {
+  // 1) Preferencia guardada por el usuario (selector de idioma).
   try {
-    return localStorage.getItem("datadiff.lang") || "es";
+    const saved = localStorage.getItem("schemir.lang");
+    if (saved) return saved;
+  } catch {}
+  // 2) Sin preferencia: autodetecta el idioma del sistema. Español → "es";
+  //    cualquier otro → "en". Alcance internacional sin perder a los
+  //    usuarios hispanohablantes.
+  try {
+    return (navigator.language || "en").toLowerCase().startsWith("es") ? "es" : "en";
   } catch {
-    return "es";
+    return "en";
   }
 })();
 
@@ -442,7 +450,7 @@ const DEFAULT_OPTIONS = {
 };
 let compareOptions = (() => {
   try {
-    return { ...DEFAULT_OPTIONS, ...JSON.parse(localStorage.getItem("datadiff.options") || "{}") };
+    return { ...DEFAULT_OPTIONS, ...JSON.parse(localStorage.getItem("schemir.options") || "{}") };
   } catch {
     return { ...DEFAULT_OPTIONS };
   }
@@ -455,7 +463,7 @@ function setupOptions() {
     cb.addEventListener("change", () => {
       compareOptions[cb.dataset.opt] = cb.checked;
       try {
-        localStorage.setItem("datadiff.options", JSON.stringify(compareOptions));
+        localStorage.setItem("schemir.options", JSON.stringify(compareOptions));
       } catch {}
     });
   });
@@ -506,7 +514,7 @@ function readConfig(side) {
 // ===========================================================================
 let recentConns = (() => {
   try {
-    return JSON.parse(localStorage.getItem("datadiff.recentConns") || "[]");
+    return JSON.parse(localStorage.getItem("schemir.recentConns") || "[]");
   } catch {
     return [];
   }
@@ -533,7 +541,7 @@ function rememberConn(c) {
   const sig = connSig(c);
   recentConns = [profile, ...recentConns.filter((p) => connSig(p) !== sig)].slice(0, 8);
   try {
-    localStorage.setItem("datadiff.recentConns", JSON.stringify(recentConns));
+    localStorage.setItem("schemir.recentConns", JSON.stringify(recentConns));
   } catch {}
   renderRecentSelectors();
 }
@@ -599,7 +607,7 @@ async function pickFile(title, filters) {
 /** Documento con la comparación actual (ambas conexiones SIN contraseña + opciones). */
 function currentComparisonDoc() {
   const strip = (c) => ({ engine: c.engine, host: c.host, port: c.port, database: c.database, user: c.user, path: c.path });
-  return { datadiff: "comparison", version: 1, options: compareOptions, a: strip(readConfig("a")), b: strip(readConfig("b")) };
+  return { schemir: "comparison", version: 1, options: compareOptions, a: strip(readConfig("a")), b: strip(readConfig("b")) };
 }
 
 /** Aplica un documento de comparación a las tarjetas y a las opciones. */
@@ -608,7 +616,7 @@ function applyComparisonDoc(doc) {
   if (doc.b) applyConnProfile(document.querySelector('.card[data-side="b"]'), doc.b);
   if (doc.options && typeof doc.options === "object") {
     compareOptions = { ...DEFAULT_OPTIONS, ...doc.options };
-    try { localStorage.setItem("datadiff.options", JSON.stringify(compareOptions)); } catch {}
+    try { localStorage.setItem("schemir.options", JSON.stringify(compareOptions)); } catch {}
     document.querySelectorAll("#cmp-options input[data-opt]").forEach((cb) => (cb.checked = !!compareOptions[cb.dataset.opt]));
   }
 }
@@ -618,7 +626,7 @@ async function saveComparison() {
   const st = document.getElementById("cmp-status");
   if (st) { st.className = "conn-status"; st.textContent = ""; }
   try {
-    const path = await saveFileDialog(t("cmp.save"), "comparacion.ddcmp", "DataDiff", "ddcmp");
+    const path = await saveFileDialog(t("cmp.save"), "comparacion.ddcmp", "Schemir", "ddcmp");
     if (path) await invoke("save_text_file", { path, content: JSON.stringify(currentComparisonDoc(), null, 2) });
   } catch (e) {
     showError(e);
@@ -631,14 +639,14 @@ async function openComparison() {
   if (st) { st.className = "conn-status"; st.textContent = ""; }
   try {
     const path = await pickFile(t("cmp.open"), [
-      { name: "DataDiff", extensions: ["ddcmp", "json"] },
+      { name: "Schemir", extensions: ["ddcmp", "json"] },
       { name: "*", extensions: ["*"] },
     ]);
     if (!path) return;
     const text = await invoke("read_text_file", { path });
     let doc = null;
     try { doc = JSON.parse(text); } catch {}
-    if (!doc || doc.datadiff !== "comparison" || (!doc.a && !doc.b)) {
+    if (!doc || doc.schemir !== "comparison" || (!doc.a && !doc.b)) {
       if (st) { st.className = "conn-status fail"; st.textContent = "✗ " + t("cmp.invalid"); }
       return;
     }
@@ -880,7 +888,7 @@ document.getElementById("apply-script").addEventListener("click", async (e) => {
 /** Confirmación nativa (diálogo de Tauri) con aspecto de advertencia. */
 async function askConfirm(message) {
   const td = window.__TAURI__;
-  const options = { title: "DataDiff", kind: "warning" };
+  const options = { title: "Schemir", kind: "warning" };
   if (td?.dialog?.ask) return await td.dialog.ask(message, options);
   return await invoke("plugin:dialog|ask", { message, ...options });
 }
@@ -1386,15 +1394,15 @@ function buildReportHtml() {
 
   return (
     `<!doctype html><html lang="${lang}"><head><meta charset="utf-8">` +
-    `<title>DataDiff — ${esc(t("report.title"))}</title><style>${REPORT_CSS}</style></head><body>` +
-    `<header><h1>DataDiff</h1><p class="sub">${esc(t("report.title"))}</p>` +
+    `<title>Schemir — ${esc(t("report.title"))}</title><style>${REPORT_CSS}</style></head><body>` +
+    `<header><h1>Schemir</h1><p class="sub">${esc(t("report.title"))}</p>` +
     (dbs ? `<p class="meta">${esc(dbs)}</p>` : "") +
     `<p class="meta">${esc(t("report.generated"))}: ${esc(now)}</p></header>` +
     `<section class="summary">${summary}</section>` +
     `<h2>${esc(t("report.objects"))}</h2>` +
     (changed.length ? objs : `<p class="empty">${esc(t("report.noChanges"))}</p>`) +
     `<h2>${esc(t("report.script"))}</h2><pre class="script">${script}</pre>` +
-    `<footer>DataDiff · github.com/marlontaro/DataDiff</footer>` +
+    `<footer>Schemir · github.com/marlontaro/Schemir</footer>` +
     `</body></html>`
   );
 }
@@ -1404,7 +1412,7 @@ async function exportReport() {
   if (!lastObjects || !lastObjects.length) return;
   try {
     const html = buildReportHtml();
-    const path = await saveFileDialog(t("btn.report"), "informe-datadiff.html", "HTML", "html");
+    const path = await saveFileDialog(t("btn.report"), "informe-schemir.html", "HTML", "html");
     if (path) await invoke("save_text_file", { path, content: html });
   } catch (e) {
     showError(e);
@@ -1424,7 +1432,7 @@ function targetDialectLabel() {
 function syncHeader() {
   return [
     "-- ============================================================",
-    "-- Script de sincronización generado por DataDiff",
+    "-- Script de sincronización generado por Schemir",
     "-- Deja el DESTINO (B) igual que el ORIGEN (A)",
     "-- Motor destino: " + targetDialectLabel(),
     "-- (!) Revísalo y respalda el destino antes de ejecutarlo.",
@@ -1658,7 +1666,7 @@ document.getElementById("apply-data").addEventListener("click", async (e) => {
 // ===========================================================================
 let design = (() => {
   try {
-    const d = JSON.parse(localStorage.getItem("datadiff.design") || "null");
+    const d = JSON.parse(localStorage.getItem("schemir.design") || "null");
     if (d && Array.isArray(d.tables)) return { seq: 1, relations: [], ...d };
   } catch {}
   return { tables: [], relations: [], seq: 1 };
@@ -1666,7 +1674,7 @@ let design = (() => {
 let lastDesignOut = "";
 
 function saveDesign() {
-  try { localStorage.setItem("datadiff.design", JSON.stringify(design)); } catch {}
+  try { localStorage.setItem("schemir.design", JSON.stringify(design)); } catch {}
 }
 function dzTableById(id) { return design.tables.find((x) => x.id === id); }
 
@@ -1888,7 +1896,7 @@ function dzQuote(dialect, s) {
 
 function designToSql(dialect) {
   const q = (s) => dzQuote(dialect, s);
-  let out = "-- Modelo generado por el diseñador de DataDiff\n\n";
+  let out = "-- Modelo generado por el diseñador de Schemir\n\n";
   for (const tbl of design.tables) {
     const lines = tbl.columns.map((c) => `    ${q(c.name)} ${(c.type || "TEXT").trim() || "TEXT"} ${c.nn ? "NOT NULL" : "NULL"}`);
     const pks = tbl.columns.filter((c) => c.pk).map((c) => q(c.name));
@@ -1930,7 +1938,7 @@ function designToPrisma() {
     (relFrom[r.fromTable] = relFrom[r.fromTable] || []).push(r);
     (relTo[r.toTable] = relTo[r.toTable] || []).push(r);
   }
-  let out = "// Modelo generado por el diseñador de DataDiff\n\n";
+  let out = "// Modelo generado por el diseñador de Schemir\n\n";
   for (const tbl of design.tables) {
     out += `model ${pascal(tbl.name)} {\n`;
     const pkCols = tbl.columns.filter((c) => c.pk).map((c) => c.name);
@@ -2178,14 +2186,14 @@ function errText(e) {
 document.querySelectorAll(".lang-toggle button").forEach((b) => {
   b.addEventListener("click", () => {
     lang = b.dataset.lang;
-    try { localStorage.setItem("datadiff.lang", lang); } catch {}
+    try { localStorage.setItem("schemir.lang", lang); } catch {}
     applyI18n();
   });
 });
 
 // Tema: claro / oscuro / sistema (recordado en localStorage).
 let theme = (() => {
-  try { return localStorage.getItem("datadiff.theme") || "system"; } catch { return "system"; }
+  try { return localStorage.getItem("schemir.theme") || "system"; } catch { return "system"; }
 })();
 function applyTheme() {
   document.documentElement.dataset.theme = theme;
@@ -2194,7 +2202,7 @@ function applyTheme() {
 document.querySelectorAll(".theme-toggle button").forEach((b) => {
   b.addEventListener("click", () => {
     theme = b.dataset.themeSet;
-    try { localStorage.setItem("datadiff.theme", theme); } catch {}
+    try { localStorage.setItem("schemir.theme", theme); } catch {}
     applyTheme();
   });
 });

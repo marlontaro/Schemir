@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use datadiff_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
+use schemir_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
 use tokio_postgres::{Client, Config};

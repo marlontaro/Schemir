@@ -640,31 +640,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "datadiff"
-version = "0.1.0"
-dependencies = [
- "datadiff-core",
- "native-tls",
- "postgres-native-tls",
- "rusqlite",
- "serde",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tiberius",
- "tokio",
- "tokio-postgres",
- "tokio-util",
-]
-
-[[package]]
-name = "datadiff-core"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "dbus"
 version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3207,6 +3182,31 @@ dependencies = [
  "quote",
  "serde_derive_internals",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "schemir"
+version = "0.1.0"
+dependencies = [
+ "native-tls",
+ "postgres-native-tls",
+ "rusqlite",
+ "schemir-core",
+ "serde",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tiberius",
+ "tokio",
+ "tokio-postgres",
+ "tokio-util",
+]
+
+[[package]]
+name = "schemir-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

@@ -51,7 +51,7 @@ jobs:
         with:
           # En un tag crea el Release (borrador); a mano solo compila, sin publicar.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: ${{ github.ref_type == 'tag' && format('DataDiff {0}', github.ref_name) || '' }}
-          releaseBody: "Instaladores de DataDiff. Descarga el de tu sistema (macOS `.dmg`, Windows `.msi`, Linux `.AppImage`/`.deb`)."
+          releaseName: ${{ github.ref_type == 'tag' && format('Schemir {0}', github.ref_name) || '' }}
+          releaseBody: "Schemir installers — download the one for your OS (macOS `.dmg`, Windows `.msi`, Linux `.AppImage`/`.deb`)."
           releaseDraft: true
           prerelease: false

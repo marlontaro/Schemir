@@ -1,12 +1,12 @@
 //! Capa de acceso a datos: cada motor lee su base y la traduce al modelo común
-//! de `datadiff-core`. Aquí viven la configuración de conexión y el despacho
+//! de `schemir-core`. Aquí viven la configuración de conexión y el despacho
 //! según el motor elegido.
 
 pub mod postgres;
 pub mod sqlite;
 pub mod sqlserver;
 
-use datadiff_core::{DataTable, Schema};
+use schemir_core::{DataTable, Schema};
 use serde::Deserialize;
 
 /// Error genérico de la capa de datos.

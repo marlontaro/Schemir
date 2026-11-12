@@ -1,7 +1,7 @@
 //! Generación del "script de sincronización": el SQL que deja el DESTINO (B)
 //! igual que el ORIGEN (A). Es la función estrella de SSDT Schema Compare.
 //!
-//! El script es un BORRADOR para revisar: DataDiff nunca ejecuta ni modifica las
+//! El script es un BORRADOR para revisar: Schemir nunca ejecuta ni modifica las
 //! bases, solo genera el texto para que tú lo revises y lo corras.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -458,7 +458,7 @@ pub fn generate_sync_units_opts(source: &Schema, target: &Schema, d: Dialect, o:
 fn script_header(d: Dialect) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "-- ============================================================");
-    let _ = writeln!(out, "-- Script de sincronización generado por DataDiff");
+    let _ = writeln!(out, "-- Script de sincronización generado por Schemir");
     let _ = writeln!(out, "-- Deja el DESTINO (B) igual que el ORIGEN (A)");
     let _ = writeln!(out, "-- Motor destino: {}", d.label());
     let _ = writeln!(out, "-- (!) Revísalo y respalda el destino antes de ejecutarlo.");

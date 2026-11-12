@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DataDiff",
+  "productName": "Schemir",
   "version": "0.1.0",
-  "identifier": "pe.soen.datadiff",
+  "identifier": "pe.soen.schemir",
   "build": {
     "frontendDist": "../src"
   },
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "DataDiff — Comparador de objetos",
+        "title": "Schemir — Schema & Data Compare",
         "width": 1180,
         "height": 800,
         "minWidth": 860,

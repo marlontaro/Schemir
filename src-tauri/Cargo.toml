@@ -1,8 +1,8 @@
 [package]
-name = "datadiff"
+name = "schemir"
 version = "0.1.0"
 edition = "2021"
-description = "DataDiff — comparador de objetos de base de datos"
+description = "Schemir — comparador de objetos de base de datos"
 authors = ["SOEN"]
 
 # src-tauri es su propio workspace para que el `cargo test` del núcleo (en la
@@ -13,7 +13,7 @@ authors = ["SOEN"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-datadiff-core = { path = "../crates/core" }
+schemir-core = { path = "../crates/core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }

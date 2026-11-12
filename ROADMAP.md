@@ -1,4 +1,4 @@
-# Roadmap de DataDiff
+# Roadmap de Schemir
 
 Estado honesto del proyecto: qué está hecho, qué falta y qué está sin probar.
 _Última actualización: noviembre 2026._
@@ -28,7 +28,7 @@ _Última actualización: noviembre 2026._
 - **Interfaz por fases** (Conexión → Comparación), **bilingüe ES/EN** y con
   **tema claro / oscuro / sistema**.
 - **Instalador para macOS** (`.dmg`) generado con `tauri build`.
-- **Pruebas:** 30 unitarias en `datadiff-core` + 2 de integración del lector SQLite.
+- **Pruebas:** 30 unitarias en `schemir-core` + 2 de integración del lector SQLite.
 
 ## ⚠️ Pendiente de verificar
 

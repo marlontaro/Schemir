@@ -1,4 +1,4 @@
-# Workspace raíz de DataDiff.
+# Workspace raíz de Schemir.
 # Por ahora solo compila/testea el núcleo (puro Rust, sin base de datos ni Tauri).
 # `src-tauri` es un workspace independiente (ver src-tauri/Cargo.toml) para que
 # `cargo test` aquí sea rápido y no arrastre las dependencias pesadas de la app.

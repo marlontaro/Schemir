@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use datadiff_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
+use schemir_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
 use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};

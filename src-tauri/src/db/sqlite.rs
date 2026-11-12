@@ -4,7 +4,7 @@
 //! así que esas listas quedan vacías. Sí tiene tablas y vistas.
 //! Abrimos el archivo en modo SOLO LECTURA: nunca creamos ni modificamos nada.
 
-use datadiff_core::{Column, ColumnKind, DataColumn, DataTable, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
+use schemir_core::{Column, ColumnKind, DataColumn, DataTable, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
 use rusqlite::{Connection, OpenFlags};
 
 use super::DbResult;
@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn lee_disparadores_de_sqlite() {
         // Crea una base temporal con un trigger y confirma que read_schema lo lee.
-        let path = std::env::temp_dir().join(format!("datadiff_trg_{}.db", std::process::id()));
+        let path = std::env::temp_dir().join(format!("schemir_trg_{}.db", std::process::id()));
         let p = path.to_string_lossy().into_owned();
         let _ = std::fs::remove_file(&p);
         {
@@ -364,8 +364,8 @@ mod tests {
 
     #[test]
     fn compara_datos_sqlite_end_to_end() {
-        use datadiff_core::{compare_table_data, Dialect};
-        let path = std::env::temp_dir().join(format!("datadiff_data_{}.db", std::process::id()));
+        use schemir_core::{compare_table_data, Dialect};
+        let path = std::env::temp_dir().join(format!("schemir_data_{}.db", std::process::id()));
         let p = path.to_string_lossy().into_owned();
         let _ = std::fs::remove_file(&p);
         {
