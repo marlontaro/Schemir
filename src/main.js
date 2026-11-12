@@ -29,6 +29,8 @@ const I18N = {
     "hint.sqlite": "Elige el archivo .db / .sqlite con «Examinar…» o pega la ruta.",
     "btn.browse": "Examinar…",
     "btn.test": "Probar conexión",
+    "conn.recent": "Recientes…",
+    "conn.recentTitle": "Conexiones recientes (sin contraseña)",
     "btn.compare": "Comparar objetos",
     "btn.comparing": "Comparando…",
     "btn.copy": "Copiar",
@@ -116,6 +118,8 @@ const I18N = {
     "hint.sqlite": "Pick the .db / .sqlite file with “Browse…” or paste the path.",
     "btn.browse": "Browse…",
     "btn.test": "Test connection",
+    "conn.recent": "Recent…",
+    "conn.recentTitle": "Recent connections (no password)",
     "btn.compare": "Compare objects",
     "btn.comparing": "Comparing…",
     "btn.copy": "Copy",
@@ -209,6 +213,7 @@ function applyI18n() {
   if (chip) chip.textContent = "v0.1 · " + t("app.tagline");
   document.querySelectorAll(".lang-toggle button").forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
   if (compareBtn) compareBtn.textContent = comparing ? t("btn.comparing") : t("btn.compare");
+  renderRecentSelectors();
 
   // Re-render de lo generado por JS.
   const results = document.getElementById("results");
@@ -354,6 +359,89 @@ function readConfig(side) {
 }
 
 // ===========================================================================
+// Conexiones recientes (se recuerdan localmente, SIN la contraseña)
+// ===========================================================================
+let recentConns = (() => {
+  try {
+    return JSON.parse(localStorage.getItem("datadiff.recentConns") || "[]");
+  } catch {
+    return [];
+  }
+})();
+
+/** Firma única de una conexión (para no repetir la misma en la lista). */
+function connSig(c) {
+  return c.engine === "sqlite" ? "sqlite|" + c.path : `${c.engine}|${c.host}:${c.port}/${c.database}@${c.user}`;
+}
+
+/** Etiqueta corta y legible de una conexión. */
+function connProfileLabel(c) {
+  if (c.engine === "sqlite") return "SQLite · " + (String(c.path).split(/[\\/]/).pop() || "—");
+  const eng = c.engine === "postgres" ? "PostgreSQL" : "SQL Server";
+  return eng + " · " + (c.database || c.host || "—");
+}
+
+/** Guarda una conexión válida en la lista de recientes (sin contraseña). */
+function rememberConn(c) {
+  if (!c) return;
+  const useful = c.engine === "sqlite" ? !!c.path : !!(c.host || c.database);
+  if (!useful) return;
+  const profile = { engine: c.engine, host: c.host, port: c.port, database: c.database, user: c.user, path: c.path };
+  const sig = connSig(c);
+  recentConns = [profile, ...recentConns.filter((p) => connSig(p) !== sig)].slice(0, 8);
+  try {
+    localStorage.setItem("datadiff.recentConns", JSON.stringify(recentConns));
+  } catch {}
+  renderRecentSelectors();
+}
+
+/** Rellena el selector «Recientes…» de cada tarjeta (oculto si no hay ninguna). */
+function renderRecentSelectors() {
+  document.querySelectorAll(".recent-select").forEach((sel) => {
+    const has = recentConns.length > 0;
+    sel.hidden = !has;
+    if (!has) return;
+    sel.innerHTML =
+      `<option value="">${esc(t("conn.recent"))}</option>` +
+      recentConns.map((p, i) => `<option value="${i}">${esc(connProfileLabel(p))}</option>`).join("");
+    sel.value = "";
+    sel.title = t("conn.recentTitle");
+  });
+}
+
+/** Aplica una conexión guardada a una tarjeta (deja la contraseña vacía). */
+function applyConnProfile(card, p) {
+  if (!p) return;
+  const engine = p.engine || "sqlserver";
+  card.dataset.engine = engine;
+  card.querySelectorAll(".seg").forEach((s) => s.classList.toggle("active", s.dataset.engine === engine));
+  card.querySelector(".f-sqlserver").hidden = engine === "sqlite";
+  card.querySelector(".f-sqlite").hidden = engine !== "sqlite";
+  const set = (name, val) => {
+    const el = card.querySelector(`input[name="${name}"]`);
+    if (el) el.value = val ?? "";
+  };
+  if (engine === "sqlite") {
+    set("path", p.path);
+  } else {
+    set("host", p.host);
+    set("port", p.port || (engine === "postgres" ? 5432 : 1433));
+    set("database", p.database);
+    set("user", p.user);
+  }
+  set("password", ""); // nunca guardamos ni rellenamos contraseñas
+  // La conexión queda por validar: hay que volver a probarla.
+  const side = card.dataset.side;
+  connOk[side] = false;
+  const status = card.querySelector(".conn-status");
+  if (status) {
+    status.className = "conn-status";
+    status.textContent = "";
+  }
+  refreshCompareState();
+}
+
+// ===========================================================================
 // Probar conexión + habilitación de Comparar
 // ===========================================================================
 const compareBtn = document.getElementById("compare-btn");
@@ -380,6 +468,7 @@ document.querySelectorAll(".card").forEach((card) => {
       status.className = "conn-status ok";
       status.textContent = "✓ " + msg;
       connOk[side] = true;
+      rememberConn(readConfig(side));
     } catch (e) {
       status.className = "conn-status fail";
       status.textContent = "✗ " + errText(e);
@@ -410,6 +499,16 @@ document.querySelectorAll(".card").forEach((card) => {
     });
   }
 
+  // Selector de conexiones recientes: al elegir, rellena la tarjeta.
+  const recentSel = card.querySelector(".recent-select");
+  if (recentSel) {
+    recentSel.addEventListener("change", () => {
+      if (recentSel.value === "") return;
+      applyConnProfile(card, recentConns[Number(recentSel.value)]);
+      recentSel.value = "";
+    });
+  }
+
   // Cualquier cambio invalida la conexión.
   const invalidate = () => {
     connOk[side] = false;
@@ -419,6 +518,7 @@ document.querySelectorAll(".card").forEach((card) => {
   card.querySelectorAll(".seg").forEach((seg) => seg.addEventListener("click", invalidate));
 });
 refreshCompareState();
+renderRecentSelectors();
 
 // ===========================================================================
 // Comparar
@@ -430,6 +530,8 @@ compareBtn.addEventListener("click", async () => {
   compareBtn.textContent = t("btn.comparing");
   try {
     const result = await invoke("compare_databases", { left: readConfig("a"), right: readConfig("b") });
+    rememberConn(readConfig("a"));
+    rememberConn(readConfig("b"));
     lastObjects = result.comparison?.objects || [];
     lastScript = result.script || "";
     lastUnits = result.script_units || [];
