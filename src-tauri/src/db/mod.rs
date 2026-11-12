@@ -6,7 +6,7 @@ pub mod postgres;
 pub mod sqlite;
 pub mod sqlserver;
 
-use datadiff_core::Schema;
+use datadiff_core::{DataTable, Schema};
 use serde::Deserialize;
 
 /// Error genérico de la capa de datos.
@@ -65,6 +65,20 @@ pub async fn test_connection(cfg: &ConnectionConfig) -> Result<String, String> {
         EngineKind::SqlServer => sqlserver::test_connection(cfg).await.map_err(|e| e.to_string()),
         EngineKind::Postgres => postgres::test_connection(cfg).await.map_err(|e| e.to_string()),
         EngineKind::Sqlite => run_blocking(cfg.path.clone(), sqlite::test_connection).await,
+    }
+}
+
+/// Lee los datos de UNA tabla para comparar filas. v1: solo SQLite.
+pub async fn read_table_data(cfg: &ConnectionConfig, table: &str) -> Result<DataTable, String> {
+    match cfg.engine {
+        EngineKind::Sqlite => {
+            let (path, table) = (cfg.path.clone(), table.to_string());
+            tokio::task::spawn_blocking(move || sqlite::read_table_data(&path, &table))
+                .await
+                .map_err(|e| format!("fallo en el hilo de SQLite: {e}"))?
+                .map_err(|e| e.to_string())
+        }
+        _ => Err("El comparador de datos admite SQLite por ahora.".to_string()),
     }
 }
 

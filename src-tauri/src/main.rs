@@ -4,8 +4,9 @@
 mod db;
 
 use datadiff_core::{
-    compare_schemas_opts, generate_sync_script_opts, generate_sync_units_opts, to_diagram_model,
-    to_diff_diagram_opts, CompareOptions, ComparisonResult, Dialect, DiagramModel, ScriptUnit,
+    compare_schemas_opts, compare_table_data, generate_sync_script_opts, generate_sync_units_opts,
+    to_diagram_model, to_diff_diagram_opts, CompareOptions, ComparisonResult, DataComparison,
+    Dialect, DiagramModel, ScriptUnit,
 };
 use db::{ConnectionConfig, EngineKind};
 use serde::Serialize;
@@ -86,6 +87,30 @@ async fn apply_script(config: ConnectionConfig, script: String) -> Result<String
     db::apply_script(&config, &script).await
 }
 
+/// Compara los DATOS de una tabla entre A y B (v1: solo SQLite) y arma el DML.
+#[tauri::command]
+async fn compare_data(
+    left: ConnectionConfig,
+    right: ConnectionConfig,
+    table: String,
+) -> Result<DataComparison, String> {
+    if left.engine != EngineKind::Sqlite || right.engine != EngineKind::Sqlite {
+        return Ok(DataComparison {
+            table,
+            note: "El comparador de datos admite SQLite por ahora.".into(),
+            ..Default::default()
+        });
+    }
+    let lt = db::read_table_data(&left, &table)
+        .await
+        .map_err(|e| format!("ORIGEN (A): {e}"))?;
+    let rt = db::read_table_data(&right, &table)
+        .await
+        .map_err(|e| format!("DESTINO (B): {e}"))?;
+    let dialect = dialect_of(right.engine);
+    Ok(compare_table_data(&lt, &rt, dialect))
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -95,7 +120,8 @@ fn main() {
             save_text_file,
             save_binary_file,
             read_text_file,
-            apply_script
+            apply_script,
+            compare_data
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar DataDiff");

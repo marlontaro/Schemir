@@ -363,6 +363,11 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .diagram-right .btn { font-size: 12px; padding: 7px 13px; }
 .diff-actions { display: flex; align-items: center; gap: 8px; }
 .diff-actions .btn { font-size: 12px; padding: 8px 13px; white-space: nowrap; }
+.data-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.data-pick .lbl-inline { font-size: 13px; color: var(--muted); }
+.data-pick .recent-select { margin-left: 0; max-width: 280px; }
+.data-pick .btn { font-size: 12px; padding: 8px 14px; }
+#data-summary:empty { display: none; }
 .diagram-box {
   background: var(--diagram-bg); border: 1px solid var(--border); border-radius: var(--radius);
   position: relative; overflow: hidden; height: 600px; cursor: grab;

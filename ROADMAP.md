@@ -15,15 +15,18 @@ _Última actualización: noviembre 2026._
   **sincronización selectiva** (marcar/desmarcar qué objetos entran). Copiar y guardar `.sql`.
 - **Aplicar al destino:** ejecutar el script (solo lo marcado) contra la base B desde la
   app, con confirmación y en una transacción (verificado en SQLite).
+- **Comparar datos de filas** (SQLite): por tabla, empareja por clave primaria y reporta
+  filas solo en A / solo en B / distintas, con su DML (`INSERT` / `UPDATE` / `DELETE`).
 - **Diagrama ER** con renderizador propio (dagre): vista por esquema y **diagrama de
   diferencias** a color. Interactivo (zoom, desplazamiento, arrastrar, pantalla completa)
   y **exportable a PNG/SVG**.
 - **Informe de diferencias** en HTML (imprimible a PDF) con resumen, detalle y script.
-- **Conexiones recientes:** recuerda las conexiones probadas (sin la contraseña).
+- **Conexiones recientes** y **guardar / abrir una comparación** (`.ddcmp`), ambas sin
+  guardar contraseñas.
 - **Interfaz por fases** (Conexión → Comparación), **bilingüe ES/EN** y con
   **tema claro / oscuro / sistema**.
 - **Instalador para macOS** (`.dmg`) generado con `tauri build`.
-- **Pruebas:** 25 unitarias en `datadiff-core` + 1 de integración del lector SQLite.
+- **Pruebas:** 30 unitarias en `datadiff-core` + 2 de integración del lector SQLite.
 
 ## ⚠️ Pendiente de verificar
 
@@ -37,11 +40,10 @@ _Última actualización: noviembre 2026._
 
 ## 🚀 Funcionalidad grande
 
-- **Comparar datos de filas** (no solo estructura), al estilo SQL Data Compare.
-- **Guardar / cargar una comparación** completa (como los `.scmp` de SSDT).
-- **Validación de CA en TLS** (hoy se confía en el certificado del servidor).
+- **Comparar datos de filas en SQL Server y PostgreSQL** (hoy solo SQLite).
 - **Diseñador de diagramas ER:** crear y editar el modelo visualmente y exportarlo a
   SQL, Prisma, etc. (hoy el diagrama es de solo lectura).
+- **Validación de CA en TLS** (hoy se confía en el certificado del servidor).
 
 ## 📦 Pulido y distribución
 

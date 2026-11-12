@@ -20,17 +20,17 @@ pub enum Dialect {
 
 impl Dialect {
     /// Entrecomilla un identificador según el motor: `[x]` en SQL Server, `"x"` en SQLite.
-    fn quote(&self, ident: &str) -> String {
+    pub(crate) fn quote(&self, ident: &str) -> String {
         match self {
             Dialect::SqlServer => format!("[{}]", ident.replace(']', "]]")),
             Dialect::Sqlite | Dialect::Postgres => format!("\"{}\"", ident.replace('"', "\"\"")),
         }
     }
     /// Nombre calificado entrecomillado, p.ej. `[dbo].[Clientes]`.
-    fn qname(&self, schema: &str, name: &str) -> String {
+    pub(crate) fn qname(&self, schema: &str, name: &str) -> String {
         format!("{}.{}", self.quote(schema), self.quote(name))
     }
-    fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Dialect::SqlServer => "SQL Server",
             Dialect::Sqlite => "SQLite",

@@ -208,6 +208,7 @@
             <div class="tabs">
               <button type="button" class="tab active" data-tab="diff" data-i18n="tab.diff">Diferencias</button>
               <button type="button" class="tab" data-tab="script" data-i18n="tab.script">Script de sincronización</button>
+              <button type="button" class="tab" data-tab="data" data-i18n="tab.data">Datos de filas</button>
               <button type="button" class="tab" data-tab="diagram" data-i18n="tab.diagram">Diagrama</button>
             </div>
 
@@ -241,6 +242,31 @@
                 </div>
               </div>
               <pre id="script-box" class="sql-box"></pre>
+            </div>
+
+            <div id="tab-data" class="tab-panel" hidden>
+              <div class="toolbar">
+                <div class="data-pick">
+                  <span class="lbl-inline" data-i18n="data.table">Tabla</span>
+                  <select id="data-table" class="recent-select"></select>
+                  <button type="button" id="compare-data" class="btn ghost" data-i18n="btn.compareData">Comparar datos</button>
+                  <span id="data-status" class="conn-status"></span>
+                </div>
+              </div>
+              <div class="summary" id="data-summary"></div>
+              <div id="data-result" hidden>
+                <div class="toolbar">
+                  <span class="script-info" data-i18n="data.info">DML para dejar los datos de B iguales que A · revísalo antes de ejecutarlo.</span>
+                  <div class="script-actions">
+                    <button type="button" id="copy-data" class="btn ghost" data-i18n="btn.copy">Copiar</button>
+                    <button type="button" id="save-data" class="btn ghost" data-i18n="btn.saveSql">Guardar .sql</button>
+                    <button type="button" id="apply-data" class="btn warn" data-i18n="btn.apply">Aplicar a B</button>
+                    <span id="apply-data-status" class="conn-status"></span>
+                  </div>
+                </div>
+                <pre id="data-box" class="sql-box"></pre>
+              </div>
+              <p id="data-empty" class="empty">Elige una tabla y pulsa «Comparar datos».</p>
             </div>
 
             <div id="tab-diagram" class="tab-panel" hidden>

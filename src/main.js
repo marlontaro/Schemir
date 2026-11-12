@@ -63,7 +63,19 @@ const I18N = {
     "btn.back": "← Conexión",
     "tab.diff": "Diferencias",
     "tab.script": "Script de sincronización",
+    "tab.data": "Datos de filas",
     "tab.diagram": "Diagrama",
+    "data.table": "Tabla",
+    "btn.compareData": "Comparar datos",
+    "data.comparing": "Comparando…",
+    "data.leftRows": "Filas solo en A",
+    "data.rightRows": "Filas solo en B",
+    "data.diffRows": "Filas distintas",
+    "data.equalRows": "Filas iguales",
+    "data.info": "DML para dejar los datos de B iguales que A · revísalo antes de ejecutarlo.",
+    "data.none": "-- Sin diferencias de datos.",
+    "data.noTables": "No hay tablas en ambas bases.",
+    "data.hint": "Elige una tabla y pulsa «Comparar datos».",
     "search.ph": "Buscar objeto…",
     "empty.filter": "No hay objetos que coincidan con el filtro.",
     "script.info": "SQL para dejar <b class=\"side-b-text\">B</b> igual que <b class=\"side-a-text\">A</b> · revísalo antes de ejecutarlo.",
@@ -173,7 +185,19 @@ const I18N = {
     "btn.back": "← Connection",
     "tab.diff": "Differences",
     "tab.script": "Synchronization script",
+    "tab.data": "Row data",
     "tab.diagram": "Diagram",
+    "data.table": "Table",
+    "btn.compareData": "Compare data",
+    "data.comparing": "Comparing…",
+    "data.leftRows": "Rows only in A",
+    "data.rightRows": "Rows only in B",
+    "data.diffRows": "Rows different",
+    "data.equalRows": "Rows equal",
+    "data.info": "DML to make B's data match A · review it before running.",
+    "data.none": "-- No data differences.",
+    "data.noTables": "No tables in both databases.",
+    "data.hint": "Pick a table and click “Compare data”.",
     "search.ph": "Search object…",
     "empty.filter": "No objects match the filter.",
     "script.info": "SQL to make <b class=\"side-b-text\">B</b> match <b class=\"side-a-text\">A</b> · review it before running.",
@@ -350,6 +374,7 @@ const STATUS = {
 // Estado de la vista.
 let lastObjects = [];
 let lastScript = "";
+let lastDataDml = "";            // DML de la última comparación de datos
 let lastUnits = [];              // unidades del script (una por objeto)
 let unitKeys = new Set();        // claves (tipo + nombre) que tienen SQL
 let deselected = new Set();      // objetos desmarcados (excluidos del script)
@@ -680,6 +705,7 @@ compareBtn.addEventListener("click", async () => {
     lastDiagramDiff = result.diagram_diff || { tables: [], relations: [] };
     renderResults();
     updateScriptFromSelection();
+    populateDataTables();
     document.getElementById("phase-dbs").textContent = dbLabel(readConfig("a")) + "  ⇄  " + dbLabel(readConfig("b"));
     hasCompared = true;
     document.querySelector('.step[data-step="comparison"]').disabled = false;
@@ -730,6 +756,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
     document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x === tab));
     document.getElementById("tab-diff").hidden = tab.dataset.tab !== "diff";
     document.getElementById("tab-script").hidden = tab.dataset.tab !== "script";
+    document.getElementById("tab-data").hidden = tab.dataset.tab !== "data";
     document.getElementById("tab-diagram").hidden = tab.dataset.tab !== "diagram";
     if (tab.dataset.tab === "diagram") renderDiagram();
   });
@@ -1406,6 +1433,127 @@ function setAllSelected(sel) {
 }
 
 document.getElementById("sel-all-cb").addEventListener("change", (e) => setAllSelected(e.target.checked));
+
+// ===========================================================================
+// Comparar DATOS de filas (por tabla)
+// ===========================================================================
+/** Llena el selector con las tablas que existen en A y B (iguales o distintas). */
+function populateDataTables() {
+  const sel = document.getElementById("data-table");
+  if (!sel) return;
+  const inBoth = lastObjects
+    .filter((o) => o.object_type === "Tabla" && (o.status === "different" || o.status === "equal"))
+    .map((o) => o.name);
+  sel.innerHTML = inBoth.length
+    ? inBoth.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")
+    : `<option value="">${esc(t("data.noTables"))}</option>`;
+  // Estado inicial del panel.
+  lastDataDml = "";
+  document.getElementById("data-summary").innerHTML = "";
+  document.getElementById("data-result").hidden = true;
+  const empty = document.getElementById("data-empty");
+  empty.hidden = false;
+  empty.textContent = inBoth.length ? t("data.hint") : t("data.noTables");
+}
+
+function renderDataResult(cmp) {
+  const summary = document.getElementById("data-summary");
+  const result = document.getElementById("data-result");
+  const empty = document.getElementById("data-empty");
+  if (cmp.note) {
+    summary.innerHTML = "";
+    result.hidden = true;
+    empty.hidden = false;
+    empty.textContent = cmp.note;
+    lastDataDml = "";
+    return;
+  }
+  empty.hidden = true;
+  const tiles = [
+    ["left", cmp.only_in_left, "data.leftRows"],
+    ["right", cmp.only_in_right, "data.rightRows"],
+    ["diff", cmp.different, "data.diffRows"],
+    ["equal", cmp.equal, "data.equalRows"],
+  ];
+  summary.innerHTML = tiles
+    .map(([st, n, k]) => `<div class="stat ${st}"><div class="stat-n">${n}</div><div class="stat-l"><span class="dot"></span>${esc(t(k))}</div></div>`)
+    .join("");
+  lastDataDml = cmp.dml || "";
+  document.getElementById("data-box").innerHTML = highlightSql(lastDataDml || t("data.none"));
+  result.hidden = false;
+}
+
+document.getElementById("compare-data").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const table = document.getElementById("data-table").value;
+  const status = document.getElementById("data-status");
+  status.className = "conn-status";
+  status.textContent = "";
+  if (!table) return;
+  btn.disabled = true;
+  btn.textContent = t("data.comparing");
+  try {
+    const cmp = await invoke("compare_data", { left: readConfig("a"), right: readConfig("b"), table });
+    renderDataResult(cmp);
+  } catch (err) {
+    status.className = "conn-status fail";
+    status.textContent = "✗ " + errText(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t("btn.compareData");
+  }
+});
+
+document.getElementById("copy-data").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  try {
+    await navigator.clipboard.writeText(lastDataDml);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = lastDataDml;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch {}
+    ta.remove();
+  }
+  btn.textContent = t("btn.copied");
+  setTimeout(() => (btn.textContent = t("btn.copy")), 1200);
+});
+
+document.getElementById("save-data").addEventListener("click", async () => {
+  errorBanner.hidden = true;
+  try {
+    const path = await saveSqlDialog();
+    if (path) await invoke("save_text_file", { path, content: lastDataDml });
+  } catch (e) {
+    showError(e);
+  }
+});
+
+document.getElementById("apply-data").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const status = document.getElementById("apply-data-status");
+  status.className = "conn-status";
+  status.textContent = "";
+  if (!lastDataDml || !lastDataDml.trim()) return;
+  let ok = false;
+  try { ok = await askConfirm(t("apply.confirm")); } catch { ok = false; }
+  if (!ok) return;
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t("apply.applying");
+  try {
+    await invoke("apply_script", { config: readConfig("b"), script: lastDataDml });
+    status.className = "conn-status ok";
+    status.textContent = t("apply.done");
+  } catch (err) {
+    status.className = "conn-status fail";
+    status.textContent = "✗ " + errText(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+});
 
 // ===========================================================================
 // Render de resultados

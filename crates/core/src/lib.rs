@@ -6,11 +6,13 @@
 //! traducirla a este modelo. Así, agregar PostgreSQL luego solo requiere escribir
 //! su capa de lectura; el diff y la interfaz se reutilizan tal cual.
 
+pub mod data;
 pub mod diagram;
 pub mod diff;
 pub mod model;
 pub mod script;
 
+pub use data::*;
 pub use diagram::*;
 pub use diff::*;
 pub use model::*;

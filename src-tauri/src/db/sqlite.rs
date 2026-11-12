@@ -4,7 +4,7 @@
 //! así que esas listas quedan vacías. Sí tiene tablas y vistas.
 //! Abrimos el archivo en modo SOLO LECTURA: nunca creamos ni modificamos nada.
 
-use datadiff_core::{Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
+use datadiff_core::{Column, ColumnKind, DataColumn, DataTable, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
 use rusqlite::{Connection, OpenFlags};
 
 use super::DbResult;
@@ -243,6 +243,97 @@ fn read_triggers(conn: &Connection) -> DbResult<Vec<Trigger>> {
     Ok(triggers)
 }
 
+/// Límite de filas por tabla para comparar datos (evita leer tablas enormes).
+const DATA_ROW_CAP: i64 = 100_000;
+
+/// Clasifica el tipo declarado de SQLite para saber cómo entrecomillar en el DML.
+fn sqlite_kind(ty: &str) -> ColumnKind {
+    let t = ty.to_lowercase();
+    if t.contains("int") || t.contains("real") || t.contains("floa") || t.contains("doub") || t.contains("num") || t.contains("dec") {
+        ColumnKind::Numeric
+    } else if t.contains("bool") {
+        ColumnKind::Bool
+    } else if t.contains("blob") {
+        ColumnKind::Blob
+    } else {
+        ColumnKind::Text
+    }
+}
+
+/// Convierte el valor de una celda a texto canónico (o `None` para NULL).
+fn cell_to_text(v: rusqlite::types::ValueRef<'_>) -> Option<String> {
+    use rusqlite::types::ValueRef;
+    match v {
+        ValueRef::Null => None,
+        ValueRef::Integer(n) => Some(n.to_string()),
+        ValueRef::Real(f) => Some(f.to_string()),
+        ValueRef::Text(t) => Some(String::from_utf8_lossy(t).into_owned()),
+        ValueRef::Blob(b) => Some(b.iter().map(|x| format!("{x:02X}")).collect()),
+    }
+}
+
+/// Lee los datos de una tabla para comparar filas (columnas, PK y filas).
+pub fn read_table_data(path: &str, qualified: &str) -> DbResult<DataTable> {
+    // "main.clientes" -> "clientes"
+    let table = qualified.rsplit('.').next().unwrap_or(qualified).to_string();
+    let quoted = format!("\"{}\"", table.replace('"', "\"\""));
+    let conn = open_ro(path)?;
+
+    // Columnas, tipos y clave primaria.
+    let info_sql = format!("PRAGMA table_info({quoted})");
+    let mut stmt = conn.prepare(&info_sql)?;
+    let info: Vec<(String, String, i32)> = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>("name")?,
+                r.get::<_, Option<String>>("type")?.unwrap_or_default(),
+                r.get::<_, i32>("pk")?,
+            ))
+        })?
+        .collect::<Result<_, _>>()?;
+    if info.is_empty() {
+        return Err(format!("La tabla «{table}» no existe o no tiene columnas.").into());
+    }
+
+    let mut columns = Vec::with_capacity(info.len());
+    let mut pk_order: Vec<(i32, String)> = Vec::new();
+    for (name, ty, pk) in &info {
+        columns.push(DataColumn { name: name.clone(), kind: sqlite_kind(ty) });
+        if *pk > 0 {
+            pk_order.push((*pk, name.clone()));
+        }
+    }
+    pk_order.sort();
+    let pk: Vec<String> = pk_order.into_iter().map(|(_, n)| n).collect();
+
+    // ¿Demasiado grande? No la comparamos (sería parcial y peligroso).
+    let count: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {quoted}"), [], |r| r.get(0))?;
+    if count > DATA_ROW_CAP {
+        return Ok(DataTable { table: qualified.to_string(), columns, pk, rows: Vec::new(), truncated: true });
+    }
+
+    // Filas.
+    let collist = columns
+        .iter()
+        .map(|c| format!("\"{}\"", c.name.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sel = format!("SELECT {collist} FROM {quoted}");
+    let mut s2 = conn.prepare(&sel)?;
+    let n = columns.len();
+    let rows: Vec<Vec<Option<String>>> = s2
+        .query_map([], |row| {
+            let mut cells = Vec::with_capacity(n);
+            for i in 0..n {
+                cells.push(cell_to_text(row.get_ref(i)?));
+            }
+            Ok(cells)
+        })?
+        .collect::<Result<_, _>>()?;
+
+    Ok(DataTable { table: qualified.to_string(), columns, pk, rows, truncated: false })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,5 +360,33 @@ mod tests {
         assert_eq!(tr.name, "trg_ins");
         assert_eq!(tr.table, "main.t");
         assert!(tr.definition.to_uppercase().contains("CREATE TRIGGER"), "def: {}", tr.definition);
+    }
+
+    #[test]
+    fn compara_datos_sqlite_end_to_end() {
+        use datadiff_core::{compare_table_data, Dialect};
+        let path = std::env::temp_dir().join(format!("datadiff_data_{}.db", std::process::id()));
+        let p = path.to_string_lossy().into_owned();
+        let _ = std::fs::remove_file(&p);
+        {
+            let conn = Connection::open(&p).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE cli(id INTEGER PRIMARY KEY, nombre TEXT, saldo REAL);\
+                 INSERT INTO cli VALUES (1,'Ana',10.5),(2,'Beto',0);",
+            )
+            .unwrap();
+        }
+        let dt = read_table_data(&p, "main.cli").unwrap();
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(dt.pk, vec!["id".to_string()]);
+        assert_eq!(dt.columns.len(), 3);
+        assert_eq!(dt.rows.len(), 2);
+        // Comparar contra una tabla vacía → 2 INSERT, con tipos bien entrecomillados.
+        let empty = DataTable { table: "main.cli".into(), columns: dt.columns.clone(), pk: dt.pk.clone(), rows: vec![], truncated: false };
+        let c = compare_table_data(&dt, &empty, Dialect::Sqlite);
+        assert_eq!(c.only_in_left, 2);
+        assert!(c.dml.contains("INSERT INTO \"main\".\"cli\""), "{}", c.dml);
+        assert!(c.dml.contains("'Ana'"), "{}", c.dml); // texto entrecomillado
+        assert!(c.dml.contains("10.5"), "{}", c.dml); // número sin comillas
     }
 }
