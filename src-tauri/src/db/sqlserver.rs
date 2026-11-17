@@ -87,16 +87,63 @@ fn split_go_batches(script: &str) -> Vec<String> {
     batches
 }
 
-/// Ejecuta el script contra la base, lote por lote (separados por GO).
+/// Ejecuta el script contra la base, lote por lote (separados por GO) y dentro
+/// de UNA transacción: si cualquier lote falla, se revierte todo y la base queda
+/// como estaba.
+///
+/// Los lotes viajan por la misma conexión, así que la transacción que abre el
+/// primero sigue viva en los siguientes; SQL Server revierte también el DDL
+/// (crear o modificar tablas, índices, vistas…), no solo los datos.
+///
+/// `SET XACT_ABORT ON` hace que un error de ejecución anule la transacción en el
+/// acto, pero aun así revertimos a mano: `RAISERROR` —que es lo que usa el
+/// guardia de posible pérdida de datos— no la anula por sí solo.
+///
+/// Ojo: SQL Server no admite algunas sentencias dentro de una transacción
+/// (`CREATE`/`ALTER DATABASE`, `ALTER FULLTEXT`…). El script de sincronización
+/// no las genera; si alguna llegara, el error se reporta y no se aplica nada.
 pub async fn apply_script(cfg: &ConnectionConfig, script: &str) -> DbResult<String> {
     let mut client = connect(cfg).await?;
+    client
+        .simple_query("SET XACT_ABORT ON; BEGIN TRANSACTION;")
+        .await?
+        .into_results()
+        .await?;
+
     for batch in split_go_batches(script) {
         if batch.trim().is_empty() {
             continue;
         }
-        client.simple_query(batch.as_str()).await?.into_results().await?;
+        // Resolvemos el lote a un Result propio para soltar el préstamo del
+        // cliente antes de pedirle el ROLLBACK.
+        let res = match client.simple_query(batch.as_str()).await {
+            Ok(stream) => stream.into_results().await.map(|_| ()),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = res {
+            // Hay que consumir también la respuesta: soltar el stream sin
+            // leerlo deja la petición a medias y no garantiza que el servidor
+            // haya terminado el ROLLBACK antes de que se cierre la conexión, y
+            // este es justo el camino donde más importa que se revierta.
+            // Los `let _` son para no tapar el error original, que es el que le
+            // interesa a quien llama: si el ROLLBACK también falla, el servidor
+            // revierte igualmente al cerrarse la sesión.
+            if let Ok(stream) = client
+                .simple_query("IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;")
+                .await
+            {
+                let _ = stream.into_results().await;
+            }
+            return Err(e.into());
+        }
     }
-    Ok("Cambios aplicados a SQL Server.".to_string())
+
+    client
+        .simple_query("IF @@TRANCOUNT > 0 COMMIT TRANSACTION;")
+        .await?
+        .into_results()
+        .await?;
+    Ok("Cambios aplicados a SQL Server (en una transacción).".to_string())
 }
 
 const TABLES_SQL: &str = "\
