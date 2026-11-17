@@ -66,8 +66,13 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
 **Synchronize**
 - 📝 **Sync script** (`CREATE` / `ALTER` / `DROP`), dialect-aware, with **selective sync**:
   check/uncheck which objects go in. Copy or save as `.sql`.
-- ⚡ **Apply to target** from the app, with confirmation and inside a **transaction** (only
-  the checked objects).
+- 🛡️ **Block on possible data loss** (on by default, as in SSDT): before dropping a column or
+  a table, or changing a column's type, the script carries a guard that stops it if the
+  affected table has rows. Each engine in its own way — `RAISERROR` in SQL Server,
+  `RAISE EXCEPTION` in PostgreSQL, a violated CHECK in SQLite and a violated NOT NULL in
+  MySQL / MariaDB.
+- ⚡ **Apply to target** from the app, with confirmation and — where the engine allows it —
+  inside a **transaction** (only the checked objects). See the table below.
 
 **Visualize & design**
 - 🗺️ **ER diagram** with a custom renderer (dagre): **Field · Type · Key** headers, 🔑 PK /
@@ -88,15 +93,21 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
 
 ## 🔌 Supported engines
 
-| Engine | Driver | Schema | Data |
-|---|---|:--:|:--:|
-| **SQL Server** | `tiberius` | ✅ | — |
-| **PostgreSQL** | `tokio-postgres` (TLS) | ✅ | — |
-| **MySQL / MariaDB** | `mysql_async` (TLS when offered) | ✅ | — |
-| **SQLite** | `rusqlite` (bundled) | ✅ | ✅ |
+| Engine | Driver | Schema | Data | Apply in a transaction | Data-loss guard |
+|---|---|:--:|:--:|:--:|:--:|
+| **SQL Server** | `tiberius` | ✅ | — | ✅ | ✅ |
+| **PostgreSQL** | `tokio-postgres` (TLS) | ✅ | — | ✅ | ✅ |
+| **MySQL / MariaDB** | `mysql_async` (TLS when offered) | ✅ | — | — | ✅ |
+| **SQLite** | `rusqlite` (bundled) | ✅ | ✅ | ✅ | ✅ |
 
 > **MySQL and MariaDB** speak the same protocol and expose the same `information_schema`,
 > so a single reader covers both.
+>
+> **No transaction in MySQL / MariaDB:** the engine commits implicitly on every DDL
+> statement, so there is nothing to roll back. The data-loss guard still works there — it
+> stops the script *before* the destructive statements run — but a failure halfway through
+> leaves the earlier statements applied. On the other three engines the whole script is
+> applied inside a transaction, so a failure leaves the database untouched.
 >
 > **Data** comparison ships today for **SQLite** (covered by tests); the logic is
 > engine-agnostic, so extending it to the other engines is just adding their row reader.
@@ -208,9 +219,27 @@ cargo test --manifest-path src-tauri/Cargo.toml # app + integration (SQLite)
   contain `;`), and `Apply to target` runs the script **statement by statement without a
   transaction**: MySQL commits implicitly on every DDL, so a failure halfway leaves the
   earlier statements applied.
+- The **data-loss guard** has been checked against a real database on **SQLite** and
+  **SQL Server** (the script does abort and nothing is applied); on PostgreSQL and
+  MySQL / MariaDB it is only covered by unit tests on the generated SQL.
+- **Auto-generated columns are not read on any engine:** SQL Server's `IDENTITY`,
+  MySQL's `AUTO_INCREMENT` and SQLite's `AUTOINCREMENT` are lost when a table is recreated
+  in the target, silently. PostgreSQL is the exception only by accident: a `serial` column's
+  `DEFAULT nextval(...)` *is* read, but the sequence it points at is not created, so the
+  script fails instead. The common model has nowhere to store this yet.
+- **User-defined types are not compared, and there is no dependency ordering.** A procedure
+  or a column that uses a type of your own is emitted verbatim, so the script fails in the
+  target because the type was never created. Units are emitted by fixed category (tables →
+  columns → keys → indexes → constraints → views → routines → triggers), not sorted by what
+  depends on what, so a view built on another view can also come out in the wrong order.
+- **No type mapping between engines:** the column type is copied as the source engine
+  reported it, so comparing *different* engines produces a script that reads fine and does
+  not run (`nvarchar(50)` or `uniqueidentifier` against PostgreSQL, for instance).
+  Same-engine comparison — the real use today — is unaffected.
 
-On the radar: row data for SQL Server / PostgreSQL, more objects (sequences, user-defined
-types), and a signed macOS build.
+On the radar: row data for SQL Server / PostgreSQL / MySQL, a type map between engines,
+dependency ordering, auto-generated columns, more objects (sequences, user-defined types),
+and a signed macOS build.
 
 ---
 
@@ -220,9 +249,10 @@ types), and a signed macOS build.
 multiplataforma — una alternativa a SSDT Schema Compare hecha con **Rust + Tauri**. Compara
 objetos (tablas, columnas, vistas, procedimientos, funciones, claves primarias/foráneas,
 índices, restricciones CHECK y disparadores) en **SQL Server, PostgreSQL, MySQL / MariaDB y
-SQLite**, con
-opciones de comparación estilo SSDT. Genera un **script de sincronización** consciente del
-dialecto con **aplicación selectiva**, compara **datos de filas** (SQLite) produciendo
+SQLite**, con opciones de comparación estilo SSDT. Genera un **script de sincronización**
+consciente del dialecto con **aplicación selectiva** y con **bloqueo ante posible pérdida de
+datos** (el script se detiene si la tabla que va a perder una columna, un tipo o sus filas no
+está vacía), compara **datos de filas** (SQLite) produciendo
 `INSERT`/`UPDATE`/`DELETE`, dibuja un **diagrama ER interactivo** (exportable a PNG/SVG) e
 incluye un **diseñador ER** que exporta a **SQL** y **Prisma**. La interfaz es bilingüe
 (ES/EN, autodetecta el idioma del sistema) con tema claro/oscuro/sistema.
