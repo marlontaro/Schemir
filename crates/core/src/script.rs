@@ -62,20 +62,94 @@ fn sorted_columns(t: &Table) -> Vec<&Column> {
     cols
 }
 
+/// Lista de columnas de la PK ya entrecomillada, p.ej. `[Id], [Linea]`.
+fn pk_list(d: Dialect, cols: &[String]) -> String {
+    cols.iter().map(|c| d.quote(c)).collect::<Vec<_>>().join(", ")
+}
+
 /// Cláusula de clave primaria a nivel de tabla, p.ej. `PRIMARY KEY ([Id])`.
 ///
-/// Se emite SIN nombre a propósito: el modelo común no guarda el nombre de la
-/// restricción, e inventar uno (`PK_tabla`) podría chocar con un objeto que ya
-/// exista en el destino. Los tres motores aceptan la forma anónima y le ponen
-/// nombre ellos. En SQLite, `PRIMARY KEY("id")` sobre una columna `integer`
-/// sigue siendo alias de `rowid` (solo `DESC` rompería esa equivalencia).
+/// Lleva el nombre de la restricción del ORIGEN cuando el motor lo expone, para
+/// que el destino quede igual que A; si no se conoce (SQLite, o una comparación
+/// guardada antes de que se leyera el nombre) se emite la forma anónima, que los
+/// tres motores aceptan y nombran ellos. En SQLite, `PRIMARY KEY("id")` sobre
+/// una columna `integer` sigue siendo alias de `rowid` (solo `DESC` rompería esa
+/// equivalencia).
 fn primary_key_ddl(d: Dialect, t: &Table) -> Option<String> {
     let cols = pk_columns(t);
     if cols.is_empty() {
         return None;
     }
-    let list = cols.iter().map(|c| d.quote(c)).collect::<Vec<_>>().join(", ");
-    Some(format!("PRIMARY KEY ({list})"))
+    let list = pk_list(d, &cols);
+    Some(match (&t.pk_name, d) {
+        // En SQLite el nombre no se lee nunca; en los otros dos, si lo tenemos,
+        // nombramos la restricción igual que en el origen.
+        (Some(n), Dialect::SqlServer | Dialect::Postgres) => {
+            format!("CONSTRAINT {} PRIMARY KEY ({list})", d.quote(n))
+        }
+        _ => format!("PRIMARY KEY ({list})"),
+    })
+}
+
+/// Cómo se muestra una lista de columnas de PK en los comentarios del script.
+fn pk_shown(cols: &[String]) -> String {
+    if cols.is_empty() {
+        "(sin PK)".to_string()
+    } else {
+        cols.join(", ")
+    }
+}
+
+/// SQL para que la clave primaria del DESTINO quede como la del ORIGEN.
+/// Devuelve `None` cuando ya coinciden.
+///
+/// Es una operación delicada: en SQL Server y PostgreSQL hay que soltar la
+/// restricción vieja por su nombre y crear la nueva, y el motor rechaza el
+/// `DROP` mientras alguna clave foránea la referencie — por eso el script lo
+/// avisa. En SQLite no se puede hacer con `ALTER`: habría que recrear la tabla,
+/// así que solo se deja el comentario (igual que con los cambios de columna).
+fn primary_key_change(d: Dialect, src: &Table, tgt: &Table) -> Option<String> {
+    let (spk, tpk) = (pk_columns(src), pk_columns(tgt));
+    if spk == tpk {
+        return None;
+    }
+    let qn = d.qname(&src.schema, &src.name);
+    let mut sql = String::new();
+
+    if d == Dialect::Sqlite {
+        let _ = writeln!(
+            sql,
+            "-- SQLite no permite cambiar la clave primaria de {qn} (de «{}» a «{}»): hay que recrear la tabla.",
+            pk_shown(&tpk),
+            pk_shown(&spk)
+        );
+        return Some(sql);
+    }
+
+    let _ = writeln!(sql, "-- Clave primaria de {qn}: «{}» → «{}».", pk_shown(&tpk), pk_shown(&spk));
+    if !tpk.is_empty() {
+        let _ = writeln!(sql, "-- (!) El motor rechaza el DROP mientras una clave foránea referencie esta PK.");
+        match &tgt.pk_name {
+            Some(n) => {
+                let _ = writeln!(sql, "ALTER TABLE {qn} DROP CONSTRAINT {};", d.quote(n));
+            }
+            None => {
+                let _ = writeln!(sql, "-- (!) No se conoce el nombre de la PK actual de {qn}: suéltala a mano antes de crear la nueva.");
+            }
+        }
+    }
+    if !spk.is_empty() {
+        let list = pk_list(d, &spk);
+        match &src.pk_name {
+            Some(n) => {
+                let _ = writeln!(sql, "ALTER TABLE {qn} ADD CONSTRAINT {} PRIMARY KEY ({list});", d.quote(n));
+            }
+            None => {
+                let _ = writeln!(sql, "ALTER TABLE {qn} ADD PRIMARY KEY ({list});");
+            }
+        }
+    }
+    Some(sql)
 }
 
 fn create_table(d: Dialect, t: &Table) -> String {
@@ -391,6 +465,24 @@ pub fn generate_sync_units_opts(source: &Schema, target: &Schema, d: Dialect, o:
                 }
             }
         }
+
+        // ── Cambios de clave primaria (tablas presentes en ambos) ──
+        // El tipo y el nombre son los mismos que usa `diff_primary_keys`, para
+        // que la interfaz pueda emparejar esta unidad con su fila y permitir
+        // marcarla o desmarcarla como cualquier otro objeto.
+        for src in &source.tables {
+            if let Some(tgt) = tgt_tables.get(&src.qualified_name()) {
+                if let Some(sql) = primary_key_change(d, src, tgt) {
+                    units.push(ScriptUnit::new(
+                        "Clave primaria",
+                        format!("PK · {}", src.qualified_name()),
+                        Different,
+                        "Claves primarias",
+                        sql,
+                    ));
+                }
+            }
+        }
     }
 
     // ── Índices ──
@@ -543,7 +635,11 @@ mod tests {
         }
     }
     fn table(name: &str, cols: Vec<Column>) -> Table {
-        Table { schema: "dbo".into(), name: name.into(), columns: cols }
+        Table { schema: "dbo".into(), name: name.into(), columns: cols, pk_name: None }
+    }
+    /// Igual que `table`, pero con el nombre de la restricción de PK.
+    fn table_pk(name: &str, cols: Vec<Column>, pk_name: &str) -> Table {
+        Table { schema: "dbo".into(), name: name.into(), columns: cols, pk_name: Some(pk_name.into()) }
     }
 
     #[test]
@@ -578,6 +674,61 @@ mod tests {
         let b = Schema::default();
         let s = generate_sync_script(&a, &b, Dialect::Postgres);
         assert!(s.contains("PRIMARY KEY (\"PedidoId\", \"Linea\")"), "{s}");
+    }
+
+    #[test]
+    fn crea_tabla_con_la_pk_nombrada_igual_que_el_origen() {
+        let a = Schema {
+            tables: vec![table_pk("Clientes", vec![pk_col("Id", "int", 1)], "PK_Clientes")],
+            ..Default::default()
+        };
+        let b = Schema::default();
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("CONSTRAINT [PK_Clientes] PRIMARY KEY ([Id])"), "{s}");
+    }
+
+    #[test]
+    fn cambia_la_clave_primaria_en_sqlserver() {
+        let a = Schema {
+            tables: vec![table_pk("T", vec![pk_col("Id", "int", 1), col("Codigo", "varchar(10)", false)], "PK_T")],
+            ..Default::default()
+        };
+        let b = Schema {
+            tables: vec![table_pk("T", vec![col("Id", "int", false), pk_col("Codigo", "varchar(10)", 2)], "PK_T_viejo")],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("ALTER TABLE [dbo].[T] DROP CONSTRAINT [PK_T_viejo];"), "{s}");
+        assert!(s.contains("ALTER TABLE [dbo].[T] ADD CONSTRAINT [PK_T] PRIMARY KEY ([Id]);"), "{s}");
+        // El DROP falla si una FK apunta a la PK vieja: el script lo avisa.
+        assert!(s.contains("clave foránea"), "{s}");
+    }
+
+    #[test]
+    fn agrega_clave_primaria_sin_nombre_conocido() {
+        let a = Schema { tables: vec![table("T", vec![pk_col("Id", "int", 1)])], ..Default::default() };
+        let b = Schema { tables: vec![table("T", vec![col("Id", "int", false)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::Postgres);
+        assert!(s.contains("ALTER TABLE \"dbo\".\"T\" ADD PRIMARY KEY (\"Id\");"), "{s}");
+        // El destino no tenía PK: no hay nada que soltar.
+        assert!(!s.contains("DROP CONSTRAINT"), "{s}");
+    }
+
+    #[test]
+    fn sqlite_no_puede_cambiar_la_clave_primaria() {
+        let a = Schema { tables: vec![table("T", vec![pk_col("id", "integer", 1)])], ..Default::default() };
+        let b = Schema { tables: vec![table("T", vec![col("id", "integer", false)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::Sqlite);
+        assert!(s.contains("SQLite no permite cambiar la clave primaria"), "{s}");
+        assert!(!s.contains("ALTER TABLE \"dbo\".\"T\" ADD PRIMARY KEY"), "{s}");
+    }
+
+    #[test]
+    fn pk_igual_no_genera_unidad() {
+        let a = Schema { tables: vec![table("T", vec![pk_col("Id", "int", 1)])], ..Default::default() };
+        let b = Schema { tables: vec![table("T", vec![pk_col("Id", "int", 1)])], ..Default::default() };
+        let units = generate_sync_units_opts(&a, &b, Dialect::SqlServer, &CompareOptions::default());
+        assert!(!units.iter().any(|u| u.object_type == "Clave primaria"), "{units:?}");
     }
 
     #[test]

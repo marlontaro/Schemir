@@ -507,7 +507,7 @@ mod tests {
     }
 
     fn table(name: &str, columns: Vec<Column>) -> Table {
-        Table { schema: "dbo".into(), name: name.into(), columns }
+        Table { schema: "dbo".into(), name: name.into(), columns, pk_name: None }
     }
 
     fn proc(name: &str, body: &str) -> Routine {

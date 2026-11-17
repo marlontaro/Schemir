@@ -44,6 +44,12 @@ pub struct Table {
     pub schema: String,
     pub name: String,
     pub columns: Vec<Column>,
+    /// Nombre de la restricción de clave primaria, si el motor lo expone y la
+    /// tabla tiene PK. Hace falta para poder emitir el `DROP CONSTRAINT` al
+    /// cambiar la clave primaria del destino. `None` en SQLite (no la nombra)
+    /// y en comparaciones guardadas antes de que existiera este campo.
+    #[serde(default)]
+    pub pk_name: Option<String>,
 }
 
 impl Table {

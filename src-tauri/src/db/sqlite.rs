@@ -92,7 +92,8 @@ fn read_tables(conn: &Connection) -> DbResult<Vec<Table>> {
     let mut tables = Vec::with_capacity(names.len());
     for name in names {
         let columns = read_columns(conn, &name)?;
-        tables.push(Table { schema: "main".to_string(), name, columns });
+        // SQLite no nombra la restricción de PK (va dentro del DDL de la tabla).
+        tables.push(Table { schema: "main".to_string(), name, columns, pk_name: None });
     }
     Ok(tables)
 }

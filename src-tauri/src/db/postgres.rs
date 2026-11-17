@@ -114,7 +114,7 @@ async fn read_tables(client: &Client) -> DbResult<Vec<Table>> {
         let key = format!("{schema}.{table}");
         if !map.contains_key(&key) {
             order.push(key.clone());
-            map.insert(key.clone(), Table { schema: schema.clone(), name: table.clone(), columns: Vec::new() });
+            map.insert(key.clone(), Table { schema: schema.clone(), name: table.clone(), columns: Vec::new(), pk_name: None });
         }
         if let Some(t) = map.get_mut(&key) {
             t.columns.push(Column {
@@ -127,8 +127,25 @@ async fn read_tables(client: &Client) -> DbResult<Vec<Table>> {
             });
         }
     }
+
+    // Nombre de la restricción de PK de cada tabla (hace falta para poder
+    // emitir el DROP CONSTRAINT cuando la clave primaria cambia).
+    for row in &client.query(PK_NAME_SQL, &[]).await? {
+        let key = format!("{}.{}", row.get::<_, String>("schema_name"), row.get::<_, String>("table_name"));
+        if let Some(t) = map.get_mut(&key) {
+            t.pk_name = Some(row.get("pk_name"));
+        }
+    }
+
     Ok(order.into_iter().filter_map(|k| map.remove(&k)).collect())
 }
+
+const PK_NAME_SQL: &str = "\
+SELECT ns.nspname AS schema_name, cl.relname AS table_name, con.conname AS pk_name
+FROM pg_constraint con
+JOIN pg_class cl ON cl.oid = con.conrelid
+JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+WHERE con.contype = 'p' AND ns.nspname NOT IN ('pg_catalog','information_schema')";
 
 const VIEWS_SQL: &str = "\
 SELECT schemaname AS schema_name, viewname AS view_name, definition

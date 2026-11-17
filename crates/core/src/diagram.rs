@@ -192,11 +192,12 @@ mod tests {
 
     #[test]
     fn modelo_con_pk_fk_y_relacion() {
-        let clientes = Table { schema: "dbo".into(), name: "Clientes".into(), columns: vec![col("id", "int", true, 1)] };
+        let clientes = Table { schema: "dbo".into(), name: "Clientes".into(), columns: vec![col("id", "int", true, 1)], pk_name: None };
         let pedidos = Table {
             schema: "dbo".into(),
             name: "Pedidos".into(),
             columns: vec![col("id", "int", true, 1), col("cliente_id", "int", false, 2)],
+            pk_name: None,
         };
         let fk = ForeignKey {
             name: "fk".into(),
@@ -221,15 +222,15 @@ mod tests {
     fn diff_diagram_marca_estados() {
         let a = Schema {
             tables: vec![
-                Table { schema: "dbo".into(), name: "Clientes".into(), columns: vec![col("id", "int", true, 1)] },
-                Table { schema: "dbo".into(), name: "SoloA".into(), columns: vec![] },
+                Table { schema: "dbo".into(), name: "Clientes".into(), columns: vec![col("id", "int", true, 1)], pk_name: None },
+                Table { schema: "dbo".into(), name: "SoloA".into(), columns: vec![], pk_name: None },
             ],
             ..Default::default()
         };
         let b = Schema {
             tables: vec![
-                Table { schema: "dbo".into(), name: "Clientes".into(), columns: vec![col("id", "bigint", true, 1)] },
-                Table { schema: "dbo".into(), name: "SoloB".into(), columns: vec![] },
+                Table { schema: "dbo".into(), name: "Clientes".into(), columns: vec![col("id", "bigint", true, 1)], pk_name: None },
+                Table { schema: "dbo".into(), name: "SoloB".into(), columns: vec![], pk_name: None },
             ],
             ..Default::default()
         };
@@ -244,8 +245,8 @@ mod tests {
     fn diff_diagram_respeta_opciones() {
         // Mismo tipo salvo may/min: con ignore_case (por defecto) la tabla es
         // "equal"; sin él, "different". Igual que en la lista de diferencias.
-        let a = Schema { tables: vec![Table { schema: "dbo".into(), name: "T".into(), columns: vec![col("id", "INT", false, 1)] }], ..Default::default() };
-        let b = Schema { tables: vec![Table { schema: "dbo".into(), name: "T".into(), columns: vec![col("id", "int", false, 1)] }], ..Default::default() };
+        let a = Schema { tables: vec![Table { schema: "dbo".into(), name: "T".into(), columns: vec![col("id", "INT", false, 1)], pk_name: None }], ..Default::default() };
+        let b = Schema { tables: vec![Table { schema: "dbo".into(), name: "T".into(), columns: vec![col("id", "int", false, 1)], pk_name: None }], ..Default::default() };
         assert_eq!(to_diff_diagram(&a, &b).tables[0].status, "equal");
         let strict = CompareOptions { ignore_case: false, ..Default::default() };
         assert_eq!(to_diff_diagram_opts(&a, &b, &strict).tables[0].status, "different");

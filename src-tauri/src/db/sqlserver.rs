@@ -147,7 +147,7 @@ async fn read_tables(client: &mut SqlClient) -> DbResult<Vec<Table>> {
         let key = format!("{schema}.{table}");
         map.entry(key.clone()).or_insert_with(|| {
             order.push(key.clone());
-            Table { schema: schema.to_string(), name: table.to_string(), columns: Vec::new() }
+            Table { schema: schema.to_string(), name: table.to_string(), columns: Vec::new(), pk_name: None }
         });
 
         if let Some(t) = map.get_mut(&key) {
@@ -162,8 +162,29 @@ async fn read_tables(client: &mut SqlClient) -> DbResult<Vec<Table>> {
         }
     }
 
+    // Nombre de la restricción de PK de cada tabla (hace falta para poder
+    // emitir el DROP CONSTRAINT cuando la clave primaria cambia).
+    for row in client.query(PK_NAME_SQL, &[]).await?.into_first_result().await? {
+        let s: &str = row.get("schema_name").unwrap_or("");
+        let t: &str = row.get("table_name").unwrap_or("");
+        let n: &str = row.get("pk_name").unwrap_or("");
+        if n.is_empty() {
+            continue;
+        }
+        if let Some(tbl) = map.get_mut(&format!("{s}.{t}")) {
+            tbl.pk_name = Some(n.to_string());
+        }
+    }
+
     Ok(order.into_iter().filter_map(|k| map.remove(&k)).collect())
 }
+
+const PK_NAME_SQL: &str = "\
+SELECT s.name AS schema_name, t.name AS table_name, kc.name AS pk_name
+FROM sys.key_constraints kc
+JOIN sys.tables t  ON t.object_id = kc.parent_object_id
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+WHERE kc.type = 'PK'";
 
 /// Arma el tipo con longitud/precisión al estilo SQL, p.ej. "varchar(50)".
 fn format_type(name: &str, max_length: i16, precision: u8, scale: u8) -> String {
