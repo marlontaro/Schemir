@@ -27,6 +27,7 @@ fn dialect_of(engine: EngineKind) -> Dialect {
     match engine {
         EngineKind::SqlServer => Dialect::SqlServer,
         EngineKind::Postgres => Dialect::Postgres,
+        EngineKind::MySql => Dialect::MySql,
         EngineKind::Sqlite => Dialect::Sqlite,
     }
 }

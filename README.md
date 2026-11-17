@@ -53,12 +53,13 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
 ## ✨ Features
 
 **Compare**
-- 🔌 **Three engines:** SQL Server, PostgreSQL and SQLite.
+- 🔌 **Four engines:** SQL Server, PostgreSQL, MySQL / MariaDB and SQLite.
 - 🧱 **Every object:** tables and columns (type, nullability, *default*), views, procedures,
   functions, **primary & foreign keys, indexes, CHECK constraints and triggers**.
 - 🎛️ **Comparison options** (SSDT-style): ignore case, whitespace, comments and column
   defaults; and choose **which object types** to compare.
 - 🗂️ **Multi-schema:** reads and compares every schema (`dbo`, `public`, whatever you have).
+  In MySQL / MariaDB the schema *is* the database, so that is what gets compared.
 - 📊 **Row-data comparison** (SQLite): matches by primary key and reports rows only in A /
   only in B / different, with their DML (`INSERT` / `UPDATE` / `DELETE`).
 
@@ -73,7 +74,8 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   🔗 FK marks, relationships, and a **color-coded difference diagram**. Interactive (zoom,
   pan, drag tables, fullscreen) and **exportable to PNG / SVG**.
 - 🎨 **ER designer:** build a model from scratch (tables, columns with PK/NOT NULL and
-  relationships) and export it to **SQL** (SQL Server / PostgreSQL / SQLite) and **Prisma**.
+  relationships) and export it to **SQL** (SQL Server / PostgreSQL / MySQL / SQLite) and
+  **Prisma**.
 - 📄 **Difference report** in HTML (printable to PDF) with summary, detail and script.
 
 **Comfort**
@@ -90,10 +92,14 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
 |---|---|:--:|:--:|
 | **SQL Server** | `tiberius` | ✅ | — |
 | **PostgreSQL** | `tokio-postgres` (TLS) | ✅ | — |
+| **MySQL / MariaDB** | `mysql_async` (TLS when offered) | ✅ | — |
 | **SQLite** | `rusqlite` (bundled) | ✅ | ✅ |
 
+> **MySQL and MariaDB** speak the same protocol and expose the same `information_schema`,
+> so a single reader covers both.
+>
 > **Data** comparison ships today for **SQLite** (covered by tests); the logic is
-> engine-agnostic, so extending it to SQL Server / PostgreSQL is just adding their row reader.
+> engine-agnostic, so extending it to the other engines is just adding their row reader.
 
 ---
 
@@ -132,7 +138,7 @@ system catalogs and translates them into a **common model**. The diff, the scrip
 diagram and the data comparison all work on that model alone.
 
 ```
-  Driver (tiberius / tokio-postgres / rusqlite)
+  Driver (tiberius / tokio-postgres / mysql_async / rusqlite)
         │  reads the system catalogs
         ▼
   Introspection  →  Schema (normalized model, in schemir-core)
@@ -164,6 +170,7 @@ Schemir/
 │           ├── mod.rs        #   ConnectionConfig + per-engine dispatch
 │           ├── sqlserver.rs  #   SQL Server introspection (tiberius)
 │           ├── postgres.rs   #   PostgreSQL introspection (tokio-postgres)
+│           ├── mysql.rs      #   MySQL / MariaDB introspection (mysql_async)
 │           └── sqlite.rs     #   introspection + data reading (rusqlite)
 ├── src/                      # frontend (HTML/CSS/JS, no framework)
 │   ├── index.html · styles.css · main.js
@@ -185,17 +192,22 @@ cargo test --manifest-path src-tauri/Cargo.toml # app + integration (SQLite)
 
 ## 🗺️ Roadmap & limitations
 
-- **Data** comparison covers **SQLite** today (structure covers all three engines).
-- **SQL Server and PostgreSQL** against real servers are not yet verified end-to-end: the
-  code compiles and is tested with SQLite; the catalog queries may need tweaks against a real
-  database.
+- **Data** comparison covers **SQLite** today (structure covers all four engines).
+- **SQL Server, PostgreSQL and MySQL / MariaDB** against real servers are not yet verified
+  end-to-end: the code compiles and its dialect and parsing logic are unit-tested, but the
+  only engine exercised against a real database is SQLite. The catalog queries may need
+  tweaks against a real server.
 - **Large tables:** data comparison currently loads up to **100k rows** into memory. Comparing
   tables with **millions of rows** is planned via **streaming comparison by primary key + row
   hashing** (constant memory, minimal data transfer) — schema comparison is unaffected.
 - PostgreSQL uses TLS when the server supports it and **trusts its certificate**; enforcing CA
   validation is a planned option.
 - In SQLite, adding or dropping a foreign key requires rebuilding the table, so the script
-  marks it with a comment instead of emitting the `ALTER` (SQL Server and Postgres do emit it).
+  marks it with a comment instead of emitting the `ALTER` (the other engines do emit it).
+- In MySQL / MariaDB, routines and triggers are emitted wrapped in `DELIMITER` (their bodies
+  contain `;`), and `Apply to target` runs the script **statement by statement without a
+  transaction**: MySQL commits implicitly on every DDL, so a failure halfway leaves the
+  earlier statements applied.
 
 On the radar: row data for SQL Server / PostgreSQL, more objects (sequences, user-defined
 types), and a signed macOS build.
@@ -207,7 +219,8 @@ types), and a signed macOS build.
 **Schemir** es un comparador de **esquema y datos** de bases de datos, open source y
 multiplataforma — una alternativa a SSDT Schema Compare hecha con **Rust + Tauri**. Compara
 objetos (tablas, columnas, vistas, procedimientos, funciones, claves primarias/foráneas,
-índices, restricciones CHECK y disparadores) en **SQL Server, PostgreSQL y SQLite**, con
+índices, restricciones CHECK y disparadores) en **SQL Server, PostgreSQL, MySQL / MariaDB y
+SQLite**, con
 opciones de comparación estilo SSDT. Genera un **script de sincronización** consciente del
 dialecto con **aplicación selectiva**, compara **datos de filas** (SQLite) produciendo
 `INSERT`/`UPDATE`/`DELETE`, dibuja un **diagrama ER interactivo** (exportable a PNG/SVG) e

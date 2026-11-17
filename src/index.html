@@ -85,6 +85,7 @@
                 <div class="segmented">
                   <button type="button" class="seg active" data-engine="sqlserver">SQL Server</button>
                   <button type="button" class="seg" data-engine="postgres">PostgreSQL</button>
+                  <button type="button" class="seg" data-engine="mysql">MySQL / MariaDB</button>
                   <button type="button" class="seg" data-engine="sqlite">SQLite</button>
                 </div>
               </header>
@@ -97,6 +98,7 @@
                 </div>
                 <label><span data-i18n="field.user">Usuario</span><input name="user" placeholder="sa" /></label>
                 <label><span data-i18n="field.password">Contraseña</span><input name="password" type="password" /></label>
+                <p class="hint hint-mysql" hidden data-i18n="hint.mysql">En MySQL / MariaDB el esquema ES la base de datos: se compara la que escribas aquí.</p>
               </div>
 
               <div class="fields f-sqlite" hidden>
@@ -132,6 +134,7 @@
                 <div class="segmented">
                   <button type="button" class="seg active" data-engine="sqlserver">SQL Server</button>
                   <button type="button" class="seg" data-engine="postgres">PostgreSQL</button>
+                  <button type="button" class="seg" data-engine="mysql">MySQL / MariaDB</button>
                   <button type="button" class="seg" data-engine="sqlite">SQLite</button>
                 </div>
               </header>
@@ -144,6 +147,7 @@
                 </div>
                 <label><span data-i18n="field.user">Usuario</span><input name="user" placeholder="sa" /></label>
                 <label><span data-i18n="field.password">Contraseña</span><input name="password" type="password" /></label>
+                <p class="hint hint-mysql" hidden data-i18n="hint.mysql">En MySQL / MariaDB el esquema ES la base de datos: se compara la que escribas aquí.</p>
               </div>
 
               <div class="fields f-sqlite" hidden>
@@ -310,6 +314,7 @@
             <select id="design-dialect" class="recent-select">
               <option value="sqlserver">SQL Server</option>
               <option value="postgres">PostgreSQL</option>
+              <option value="mysql">MySQL / MariaDB</option>
               <option value="sqlite">SQLite</option>
             </select>
             <button type="button" id="export-sql" class="btn ghost" data-i18n="dz.exportSql">Exportar SQL</button>

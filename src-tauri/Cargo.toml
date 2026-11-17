@@ -30,3 +30,8 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 tokio-postgres = "0.7"
 postgres-native-tls = "0.5"
 native-tls = "0.2"
+
+# --- MySQL / MariaDB ---  (hablan el mismo protocolo: un solo driver cubre ambos)
+# minimal-rust = compresión en Rust puro (sin zlib del sistema); native-tls-tls
+# reutiliza el mismo TLS que PostgreSQL.
+mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust", "native-tls-tls"] }

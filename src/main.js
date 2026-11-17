@@ -45,6 +45,7 @@ const I18N = {
     "ph.database": "ventas",
     "ph.sqlitePath": "/ruta/a/base.db",
     "hint.sqlite": "Elige el archivo .db / .sqlite con «Examinar…» o pega la ruta.",
+    "hint.mysql": "En MySQL / MariaDB el esquema ES la base de datos: se compara la que escribas aquí.",
     "btn.browse": "Examinar…",
     "btn.test": "Probar conexión",
     "conn.recent": "Recientes…",
@@ -194,6 +195,7 @@ const I18N = {
     "ph.database": "sales",
     "ph.sqlitePath": "/path/to/db.db",
     "hint.sqlite": "Pick the .db / .sqlite file with “Browse…” or paste the path.",
+    "hint.mysql": "In MySQL / MariaDB the schema IS the database: the one you type here is what gets compared.",
     "btn.browse": "Browse…",
     "btn.test": "Test connection",
     "conn.recent": "Recent…",
@@ -481,21 +483,42 @@ function setupOptions() {
 // ===========================================================================
 // Selector de motor por tarjeta
 // ===========================================================================
+
+/** Puerto que escucha cada motor cuando se instala sin tocar nada. */
+const DEFAULT_PORTS = { sqlserver: 1433, postgres: 5432, mysql: 3306 };
+
+/** Nombre legible del motor (MySQL y MariaDB comparten lector y dialecto). */
+function engineLabel(engine) {
+  return { postgres: "PostgreSQL", sqlite: "SQLite", mysql: "MySQL / MariaDB" }[engine] || "SQL Server";
+}
+
+/** Puerto por defecto del motor, o el de SQL Server si no se reconoce. */
+function defaultPort(engine) {
+  return DEFAULT_PORTS[engine] || DEFAULT_PORTS.sqlserver;
+}
+
+/**
+ * Deja la tarjeta con los campos que toca: SQL Server, PostgreSQL y MySQL
+ * comparten los de servidor; SQLite usa el de archivo.
+ */
+function applyEngineFields(card, engine) {
+  card.querySelector(".f-sqlserver").hidden = engine === "sqlite";
+  card.querySelector(".f-sqlite").hidden = engine !== "sqlite";
+  const mysqlHint = card.querySelector(".hint-mysql");
+  if (mysqlHint) mysqlHint.hidden = engine !== "mysql";
+}
 document.querySelectorAll(".card").forEach((card) => {
   card.querySelectorAll(".seg").forEach((seg) => {
     seg.addEventListener("click", () => {
       const engine = seg.dataset.engine;
       card.dataset.engine = engine;
       card.querySelectorAll(".seg").forEach((s) => s.classList.toggle("active", s === seg));
-      // SQL Server y PostgreSQL comparten los campos de servidor; SQLite usa el de archivo.
-      card.querySelector(".f-sqlserver").hidden = engine === "sqlite";
-      card.querySelector(".f-sqlite").hidden = engine !== "sqlite";
-      // Puerto por defecto según el motor.
+      applyEngineFields(card, engine);
+      // Puerto por defecto según el motor: solo se pisa si el que hay es el de
+      // otro motor (o está vacío), nunca uno que haya escrito el usuario.
       const portInput = card.querySelector('input[name="port"]');
-      if (portInput) {
-        if (engine === "postgres" && (portInput.value === "1433" || portInput.value === "")) portInput.value = "5432";
-        if (engine === "sqlserver" && (portInput.value === "5432" || portInput.value === "")) portInput.value = "1433";
-      }
+      const esPorDefecto = portInput && (portInput.value === "" || Object.values(DEFAULT_PORTS).some((p) => String(p) === portInput.value));
+      if (esPorDefecto) portInput.value = String(defaultPort(engine));
     });
   });
 });
@@ -510,7 +533,7 @@ function readConfig(side) {
   return {
     engine,
     host: val("host") || "localhost",
-    port: Number(val("port")) || (engine === "postgres" ? 5432 : 1433),
+    port: Number(val("port")) || defaultPort(engine),
     database: val("database"),
     user: val("user"),
     password: val("password"),
@@ -537,8 +560,7 @@ function connSig(c) {
 /** Etiqueta corta y legible de una conexión. */
 function connProfileLabel(c) {
   if (c.engine === "sqlite") return "SQLite · " + (String(c.path).split(/[\\/]/).pop() || "—");
-  const eng = c.engine === "postgres" ? "PostgreSQL" : "SQL Server";
-  return eng + " · " + (c.database || c.host || "—");
+  return engineLabel(c.engine) + " · " + (c.database || c.host || "—");
 }
 
 /** Guarda una conexión válida en la lista de recientes (sin contraseña). */
@@ -575,8 +597,7 @@ function applyConnProfile(card, p) {
   const engine = p.engine || "sqlserver";
   card.dataset.engine = engine;
   card.querySelectorAll(".seg").forEach((s) => s.classList.toggle("active", s.dataset.engine === engine));
-  card.querySelector(".f-sqlserver").hidden = engine === "sqlite";
-  card.querySelector(".f-sqlite").hidden = engine !== "sqlite";
+  applyEngineFields(card, engine);
   const set = (name, val) => {
     const el = card.querySelector(`input[name="${name}"]`);
     if (el) el.value = val ?? "";
@@ -585,7 +606,7 @@ function applyConnProfile(card, p) {
     set("path", p.path);
   } else {
     set("host", p.host);
-    set("port", p.port || (engine === "postgres" ? 5432 : 1433));
+    set("port", p.port || defaultPort(engine));
     set("database", p.database);
     set("user", p.user);
   }
@@ -811,8 +832,7 @@ document.getElementById("back-btn").addEventListener("click", () => goToStep("co
 /** Etiqueta corta de una base para el encabezado del paso 2. */
 function dbLabel(cfg) {
   if (cfg.engine === "sqlite") return "SQLite · " + (cfg.path.split(/[\\/]/).pop() || "—");
-  const eng = cfg.engine === "postgres" ? "PostgreSQL" : "SQL Server";
-  return eng + " · " + (cfg.database || cfg.host || "—");
+  return engineLabel(cfg.engine) + " · " + (cfg.database || cfg.host || "—");
 }
 
 // ===========================================================================
@@ -1434,8 +1454,7 @@ document.getElementById("export-report").addEventListener("click", exportReport)
 // Selección de sincronización: elegir qué objetos entran en el script
 // ===========================================================================
 function targetDialectLabel() {
-  const e = readConfig("b").engine;
-  return e === "postgres" ? "PostgreSQL" : e === "sqlite" ? "SQLite" : "SQL Server";
+  return engineLabel(readConfig("b").engine);
 }
 
 function syncHeader() {
@@ -1900,7 +1919,10 @@ function renderRelList() {
 
 // ── Exportadores ──
 function dzQuote(dialect, s) {
-  return dialect === "sqlserver" ? `[${String(s).replace(/]/g, "]]")}]` : `"${String(s).replace(/"/g, '""')}"`;
+  if (dialect === "sqlserver") return `[${String(s).replace(/]/g, "]]")}]`;
+  // MySQL / MariaDB: acento grave, duplicado para escaparlo.
+  if (dialect === "mysql") return `\`${String(s).replace(/`/g, "``")}\``;
+  return `"${String(s).replace(/"/g, '""')}"`;
 }
 
 function designToSql(dialect) {
