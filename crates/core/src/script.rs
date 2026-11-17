@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-use crate::diff::{columns_equal, normalize_def, CompareOptions, DiffStatus};
+use crate::diff::{columns_equal, normalize_def, pk_columns, CompareOptions, DiffStatus};
 use crate::model::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
 
 /// Dialecto SQL del destino (determina el entrecomillado y la sintaxis).
@@ -62,13 +62,34 @@ fn sorted_columns(t: &Table) -> Vec<&Column> {
     cols
 }
 
+/// Cláusula de clave primaria a nivel de tabla, p.ej. `PRIMARY KEY ([Id])`.
+///
+/// Se emite SIN nombre a propósito: el modelo común no guarda el nombre de la
+/// restricción, e inventar uno (`PK_tabla`) podría chocar con un objeto que ya
+/// exista en el destino. Los tres motores aceptan la forma anónima y le ponen
+/// nombre ellos. En SQLite, `PRIMARY KEY("id")` sobre una columna `integer`
+/// sigue siendo alias de `rowid` (solo `DESC` rompería esa equivalencia).
+fn primary_key_ddl(d: Dialect, t: &Table) -> Option<String> {
+    let cols = pk_columns(t);
+    if cols.is_empty() {
+        return None;
+    }
+    let list = cols.iter().map(|c| d.quote(c)).collect::<Vec<_>>().join(", ");
+    Some(format!("PRIMARY KEY ({list})"))
+}
+
 fn create_table(d: Dialect, t: &Table) -> String {
-    let body = sorted_columns(t)
+    // Columnas primero y, si la tabla tiene clave primaria, su cláusula al final.
+    // Sin esto la tabla nacía sin PK en el destino y cualquier clave foránea que
+    // la referenciara fallaba después (SQL Server y PostgreSQL exigen la unicidad).
+    let mut parts: Vec<String> = sorted_columns(t)
         .iter()
         .map(|c| format!("    {}", column_ddl(d, c)))
-        .collect::<Vec<_>>()
-        .join(",\n");
-    format!("CREATE TABLE {} (\n{}\n);", d.qname(&t.schema, &t.name), body)
+        .collect();
+    if let Some(pk) = primary_key_ddl(d, t) {
+        parts.push(format!("    {pk}"));
+    }
+    format!("CREATE TABLE {} (\n{}\n);", d.qname(&t.schema, &t.name), parts.join(",\n"))
 }
 
 fn routine_keyword(kind: RoutineKind) -> &'static str {
@@ -510,6 +531,17 @@ mod tests {
             is_primary_key: false,
         }
     }
+    /// Columna que forma parte de la clave primaria (con su posición).
+    fn pk_col(name: &str, ty: &str, ordinal: i32) -> Column {
+        Column {
+            name: name.into(),
+            data_type: ty.into(),
+            is_nullable: false,
+            default_value: None,
+            ordinal,
+            is_primary_key: true,
+        }
+    }
     fn table(name: &str, cols: Vec<Column>) -> Table {
         Table { schema: "dbo".into(), name: name.into(), columns: cols }
     }
@@ -521,6 +553,39 @@ mod tests {
         let s = generate_sync_script(&a, &b, Dialect::SqlServer);
         assert!(s.contains("CREATE TABLE [dbo].[Clientes]"), "{s}");
         assert!(s.contains("[Id] int NOT NULL"), "{s}");
+    }
+
+    #[test]
+    fn crea_tabla_con_clave_primaria() {
+        let a = Schema {
+            tables: vec![table("Clientes", vec![pk_col("Id", "int", 1), col("Nombre", "varchar(50)", true)])],
+            ..Default::default()
+        };
+        let b = Schema::default();
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("PRIMARY KEY ([Id])"), "{s}");
+    }
+
+    #[test]
+    fn clave_primaria_compuesta_en_orden_de_columna() {
+        let a = Schema {
+            tables: vec![table(
+                "Detalle",
+                vec![pk_col("PedidoId", "int", 1), pk_col("Linea", "int", 2), col("Cantidad", "int", true)],
+            )],
+            ..Default::default()
+        };
+        let b = Schema::default();
+        let s = generate_sync_script(&a, &b, Dialect::Postgres);
+        assert!(s.contains("PRIMARY KEY (\"PedidoId\", \"Linea\")"), "{s}");
+    }
+
+    #[test]
+    fn tabla_sin_clave_primaria_no_emite_clausula() {
+        let a = Schema { tables: vec![table("Log", vec![col("Msg", "text", true)])], ..Default::default() };
+        let b = Schema::default();
+        let s = generate_sync_script(&a, &b, Dialect::Sqlite);
+        assert!(!s.contains("PRIMARY KEY"), "{s}");
     }
 
     #[test]

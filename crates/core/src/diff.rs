@@ -396,7 +396,10 @@ fn diff_triggers(left: &[Trigger], right: &[Trigger], o: &CompareOptions, out: &
     }
 }
 
-fn pk_columns(t: &Table) -> Vec<String> {
+/// Columnas que forman la clave primaria, ordenadas por `(ordinal, nombre)`.
+/// La comparte `script.rs` para que el DDL use exactamente la misma convención
+/// que el diff (si no, una tabla podría crearse con la PK en otro orden).
+pub(crate) fn pk_columns(t: &Table) -> Vec<String> {
     let mut v: Vec<(i32, &str)> = t.columns.iter().filter(|c| c.is_primary_key).map(|c| (c.ordinal, c.name.as_str())).collect();
     v.sort();
     v.into_iter().map(|(_, n)| n.to_string()).collect()
