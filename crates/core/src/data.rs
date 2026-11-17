@@ -121,7 +121,8 @@ fn literal(d: Dialect, kind: ColumnKind, value: &Option<String>) -> String {
         ColumnKind::Blob => match d {
             Dialect::SqlServer => format!("0x{s}"),
             Dialect::Postgres => format!("'\\x{s}'"),
-            Dialect::Sqlite => format!("X'{s}'"),
+            // MySQL/MariaDB entienden la misma forma estándar que SQLite.
+            Dialect::Sqlite | Dialect::MySql => format!("X'{s}'"),
         },
         ColumnKind::Text => format!("'{}'", s.replace('\'', "''")),
     }

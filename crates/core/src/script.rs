@@ -16,13 +16,17 @@ pub enum Dialect {
     SqlServer,
     Sqlite,
     Postgres,
+    /// MySQL y MariaDB: hablan el mismo SQL para todo lo que genera Schemir.
+    MySql,
 }
 
 impl Dialect {
-    /// Entrecomilla un identificador según el motor: `[x]` en SQL Server, `"x"` en SQLite.
+    /// Entrecomilla un identificador según el motor: `[x]` en SQL Server, `"x"` en
+    /// SQLite/PostgreSQL y `` `x` `` en MySQL/MariaDB.
     pub(crate) fn quote(&self, ident: &str) -> String {
         match self {
             Dialect::SqlServer => format!("[{}]", ident.replace(']', "]]")),
+            Dialect::MySql => format!("`{}`", ident.replace('`', "``")),
             Dialect::Sqlite | Dialect::Postgres => format!("\"{}\"", ident.replace('"', "\"\"")),
         }
     }
@@ -35,6 +39,7 @@ impl Dialect {
             Dialect::SqlServer => "SQL Server",
             Dialect::Sqlite => "SQLite",
             Dialect::Postgres => "PostgreSQL",
+            Dialect::MySql => "MySQL / MariaDB",
         }
     }
 }
@@ -72,7 +77,9 @@ fn pk_list(d: Dialect, cols: &[String]) -> String {
 /// Lleva el nombre de la restricción del ORIGEN cuando el motor lo expone, para
 /// que el destino quede igual que A; si no se conoce (SQLite, o una comparación
 /// guardada antes de que se leyera el nombre) se emite la forma anónima, que los
-/// tres motores aceptan y nombran ellos. En SQLite, `PRIMARY KEY("id")` sobre
+/// cuatro motores aceptan y nombran ellos. En MySQL/MariaDB siempre se usa la
+/// forma anónima: la clave primaria se llama siempre `PRIMARY` y el motor
+/// ignora cualquier otro nombre. En SQLite, `PRIMARY KEY("id")` sobre
 /// una columna `integer` sigue siendo alias de `rowid` (solo `DESC` rompería esa
 /// equivalencia).
 fn primary_key_ddl(d: Dialect, t: &Table) -> Option<String> {
@@ -82,8 +89,8 @@ fn primary_key_ddl(d: Dialect, t: &Table) -> Option<String> {
     }
     let list = pk_list(d, &cols);
     Some(match (&t.pk_name, d) {
-        // En SQLite el nombre no se lee nunca; en los otros dos, si lo tenemos,
-        // nombramos la restricción igual que en el origen.
+        // En SQLite el nombre no se lee nunca y en MySQL no sirve de nada; en
+        // los otros dos, si lo tenemos, nombramos la restricción igual que en A.
         (Some(n), Dialect::SqlServer | Dialect::Postgres) => {
             format!("CONSTRAINT {} PRIMARY KEY ({list})", d.quote(n))
         }
@@ -129,25 +136,21 @@ fn primary_key_change(d: Dialect, src: &Table, tgt: &Table) -> Option<String> {
     let _ = writeln!(sql, "-- Clave primaria de {qn}: «{}» → «{}».", pk_shown(&tpk), pk_shown(&spk));
     if !tpk.is_empty() {
         let _ = writeln!(sql, "-- (!) El motor rechaza el DROP mientras una clave foránea referencie esta PK.");
-        match &tgt.pk_name {
-            Some(n) => {
-                let _ = writeln!(sql, "ALTER TABLE {qn} DROP CONSTRAINT {};", d.quote(n));
-            }
-            None => {
-                let _ = writeln!(sql, "-- (!) No se conoce el nombre de la PK actual de {qn}: suéltala a mano antes de crear la nueva.");
-            }
-        }
+        let _ = match (d, &tgt.pk_name) {
+            // MySQL/MariaDB no tienen `DROP CONSTRAINT` para la PK: siempre se
+            // llama «PRIMARY» y se suelta con su propia sintaxis.
+            (Dialect::MySql, _) => writeln!(sql, "ALTER TABLE {qn} DROP PRIMARY KEY;"),
+            (_, Some(n)) => writeln!(sql, "ALTER TABLE {qn} DROP CONSTRAINT {};", d.quote(n)),
+            (_, None) => writeln!(sql, "-- (!) No se conoce el nombre de la PK actual de {qn}: suéltala a mano antes de crear la nueva."),
+        };
     }
     if !spk.is_empty() {
         let list = pk_list(d, &spk);
-        match &src.pk_name {
-            Some(n) => {
-                let _ = writeln!(sql, "ALTER TABLE {qn} ADD CONSTRAINT {} PRIMARY KEY ({list});", d.quote(n));
-            }
-            None => {
-                let _ = writeln!(sql, "ALTER TABLE {qn} ADD PRIMARY KEY ({list});");
-            }
-        }
+        let _ = match (d, &src.pk_name) {
+            // En MySQL la PK no se puede nombrar: siempre la forma anónima.
+            (Dialect::MySql, _) | (_, None) => writeln!(sql, "ALTER TABLE {qn} ADD PRIMARY KEY ({list});"),
+            (_, Some(n)) => writeln!(sql, "ALTER TABLE {qn} ADD CONSTRAINT {} PRIMARY KEY ({list});", d.quote(n)),
+        };
     }
     Some(sql)
 }
@@ -178,8 +181,22 @@ fn drop_routine(d: Dialect, r: &Routine) -> String {
     let kw = routine_keyword(r.kind);
     match d {
         Dialect::SqlServer => format!("DROP {kw} IF EXISTS {};\nGO", d.qname(&r.schema, &r.name)),
-        Dialect::Sqlite | Dialect::Postgres => format!("DROP {kw} IF EXISTS {};", d.qname(&r.schema, &r.name)),
+        Dialect::Sqlite | Dialect::Postgres | Dialect::MySql => {
+            format!("DROP {kw} IF EXISTS {};", d.qname(&r.schema, &r.name))
+        }
     }
+}
+
+/// Delimitador alterno que se usa en MySQL/MariaDB para poder escribir cuerpos
+/// con `;` dentro (procedimientos, funciones y disparadores).
+const MYSQL_DELIMITER: &str = "$$";
+
+/// Envuelve un `CREATE` de MySQL cuyo cuerpo lleva `;` entre directivas
+/// `DELIMITER`, que es como lo esperan los clientes (`mysql`, Workbench,
+/// DBeaver). Sin esto el cliente corta la sentencia en el primer `;` del cuerpo.
+fn mysql_delimited(body: &str) -> String {
+    let body = body.trim().trim_end_matches(';');
+    format!("DELIMITER {MYSQL_DELIMITER}\n{body}{MYSQL_DELIMITER}\nDELIMITER ;")
 }
 
 fn create_routine(d: Dialect, r: &Routine) -> String {
@@ -187,6 +204,9 @@ fn create_routine(d: Dialect, r: &Routine) -> String {
     let body = r.definition.trim();
     match d {
         Dialect::SqlServer => format!("{body}\nGO"),
+        // Una vista de MySQL es una sola sentencia: no necesita DELIMITER.
+        Dialect::MySql if r.kind == RoutineKind::View => format!("{};", body.trim_end_matches(';')),
+        Dialect::MySql => mysql_delimited(body),
         Dialect::Sqlite | Dialect::Postgres => format!("{};", body.trim_end_matches(';')),
     }
 }
@@ -206,7 +226,7 @@ fn alter_table(d: Dialect, src: &Table, tgt: &Table, o: &CompareOptions, out: &m
                     Dialect::SqlServer => {
                         let _ = writeln!(out, "ALTER TABLE {qn} ADD {};", column_ddl(d, c));
                     }
-                    Dialect::Sqlite | Dialect::Postgres => {
+                    Dialect::Sqlite | Dialect::Postgres | Dialect::MySql => {
                         let _ = writeln!(out, "ALTER TABLE {qn} ADD COLUMN {};", column_ddl(d, c));
                     }
                 }
@@ -236,6 +256,18 @@ fn alter_table(d: Dialect, src: &Table, tgt: &Table, o: &CompareOptions, out: &m
                     }
                     Dialect::Postgres => {
                         let _ = writeln!(out, "ALTER TABLE {qn} ALTER COLUMN {} TYPE {};", d.quote(&c.name), c.data_type);
+                    }
+                    // MySQL/MariaDB redefinen la columna entera con MODIFY COLUMN:
+                    // hay que repetir el tipo Y la nulabilidad, porque lo que no
+                    // se escribe vuelve a su valor por defecto (NULL).
+                    Dialect::MySql => {
+                        let _ = writeln!(
+                            out,
+                            "ALTER TABLE {qn} MODIFY COLUMN {} {} {};",
+                            d.quote(&c.name),
+                            c.data_type,
+                            null_kw(c)
+                        );
                     }
                 }
                 *changes += 1;
@@ -320,7 +352,8 @@ fn create_index(d: Dialect, idx: &Index) -> String {
 fn drop_index(d: Dialect, idx: &Index) -> String {
     let (schema, table) = split_qualified(&idx.table);
     match d {
-        Dialect::SqlServer => format!("DROP INDEX {} ON {};", d.quote(&idx.name), d.qname(schema, table)),
+        // Ninguno de los dos admite IF EXISTS aquí, y ambos exigen la tabla.
+        Dialect::SqlServer | Dialect::MySql => format!("DROP INDEX {} ON {};", d.quote(&idx.name), d.qname(schema, table)),
         Dialect::Postgres => format!("DROP INDEX IF EXISTS {};", d.qname(schema, &idx.name)),
         Dialect::Sqlite => format!("DROP INDEX IF EXISTS {};", d.quote(&idx.name)),
     }
@@ -349,19 +382,28 @@ fn drop_fk(d: Dialect, fk: &ForeignKey) -> String {
         return format!("-- SQLite: eliminar la FK «{}» requiere recrear la tabla.", fk.name);
     }
     let (fs, ft) = split_qualified(&fk.from_table);
+    if matches!(d, Dialect::MySql) {
+        // DROP CONSTRAINT solo existe en MySQL 8.0.19+; DROP FOREIGN KEY vale en
+        // todas las versiones de MySQL y de MariaDB.
+        return format!("ALTER TABLE {} DROP FOREIGN KEY {};", d.qname(fs, ft), d.quote(&fk.name));
+    }
     format!("ALTER TABLE {} DROP CONSTRAINT {};", d.qname(fs, ft), d.quote(&fk.name))
 }
 
 fn add_check(d: Dialect, chk: &CheckConstraint) -> String {
     let (s, t) = split_qualified(&chk.table);
-    // En SQL Server la definición es solo la expresión; en Postgres ya trae "CHECK (...)".
+    // En SQL Server y en MySQL la definición es solo la expresión; en Postgres
+    // (y en SQLite) ya viene con el "CHECK (...)" delante.
     let body = match d {
-        Dialect::SqlServer => format!("CHECK {}", chk.definition),
+        Dialect::SqlServer | Dialect::MySql => format!("CHECK {}", chk.definition),
         _ => chk.definition.clone(),
     };
     format!("ALTER TABLE {} ADD CONSTRAINT {} {};", d.qname(s, t), d.quote(&chk.name), body)
 }
 
+/// `ALTER TABLE … DROP CONSTRAINT` sirve en los cuatro motores (en MySQL desde
+/// 8.0.19 y en MariaDB desde 10.2, prácticamente las mismas versiones que
+/// exponen las restricciones CHECK en `information_schema`).
 fn drop_check(d: Dialect, chk: &CheckConstraint) -> String {
     let (s, t) = split_qualified(&chk.table);
     format!("ALTER TABLE {} DROP CONSTRAINT {};", d.qname(s, t), d.quote(&chk.name))
@@ -372,6 +414,8 @@ fn create_trigger(d: Dialect, tr: &Trigger) -> String {
     let body = tr.definition.trim();
     match d {
         Dialect::SqlServer => format!("{body}\nGO"),
+        // El cuerpo de un disparador de MySQL lleva `;` dentro: hace falta DELIMITER.
+        Dialect::MySql => mysql_delimited(body),
         Dialect::Sqlite | Dialect::Postgres => format!("{};", body.trim_end_matches(';')),
     }
 }
@@ -382,6 +426,8 @@ fn drop_trigger(d: Dialect, tr: &Trigger) -> String {
         // PostgreSQL exige indicar la tabla; los demás no.
         Dialect::Postgres => format!("DROP TRIGGER IF EXISTS {} ON {};", d.quote(&tr.name), d.qname(ts, tt)),
         Dialect::SqlServer => format!("DROP TRIGGER IF EXISTS {};\nGO", d.qname(&tr.schema, &tr.name)),
+        // En MySQL el disparador vive en la base, no en la tabla: se califica con ella.
+        Dialect::MySql => format!("DROP TRIGGER IF EXISTS {};", d.qname(&tr.schema, &tr.name)),
         Dialect::Sqlite => format!("DROP TRIGGER IF EXISTS {};", d.quote(&tr.name)),
     }
 }
@@ -869,5 +915,172 @@ mod tests {
         // Dropear en PostgreSQL: con la tabla (ON …).
         let s3 = generate_sync_script(&Schema::default(), &a, Dialect::Postgres);
         assert!(s3.contains("DROP TRIGGER IF EXISTS \"trg_x\" ON \"main\".\"t\";"), "{s3}");
+    }
+
+    // ───────────────────────── MySQL / MariaDB ─────────────────────────
+
+    #[test]
+    fn mysql_entrecomilla_con_acentos_graves() {
+        let a = Schema { tables: vec![table("clientes", vec![col("id", "int", false)])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("CREATE TABLE `dbo`.`clientes`"), "{s}");
+        assert!(s.contains("`id` int NOT NULL"), "{s}");
+    }
+
+    #[test]
+    fn mysql_duplica_el_acento_grave_del_identificador() {
+        // Un nombre con ` dentro debe salir escapado al duplicarlo, igual que
+        // SQL Server duplica el ] y PostgreSQL la comilla doble.
+        let a = Schema { tables: vec![table("ra`ro", vec![col("id", "int", false)])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("CREATE TABLE `dbo`.`ra``ro`"), "{s}");
+    }
+
+    #[test]
+    fn mysql_agrega_columna_con_add_column() {
+        let a = Schema { tables: vec![table("c", vec![col("id", "int", false), col("email", "varchar(50)", true)])], ..Default::default() };
+        let b = Schema { tables: vec![table("c", vec![col("id", "int", false)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::MySql);
+        assert!(s.contains("ALTER TABLE `dbo`.`c` ADD COLUMN `email` varchar(50) NULL;"), "{s}");
+    }
+
+    #[test]
+    fn mysql_modifica_columna_con_modify_column() {
+        // MySQL no tiene «ALTER COLUMN … TYPE»: redefine la columna entera, así
+        // que el ALTER tiene que repetir también la nulabilidad.
+        let a = Schema { tables: vec![table("c", vec![col("email", "varchar(100)", false)])], ..Default::default() };
+        let b = Schema { tables: vec![table("c", vec![col("email", "varchar(50)", true)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::MySql);
+        assert!(s.contains("ALTER TABLE `dbo`.`c` MODIFY COLUMN `email` varchar(100) NOT NULL;"), "{s}");
+        assert!(!s.contains("ALTER COLUMN"), "{s}");
+    }
+
+    #[test]
+    fn mysql_cambia_la_clave_primaria_sin_nombrarla() {
+        // La PK de MySQL se llama siempre «PRIMARY»: ni el DROP ni el ADD
+        // pueden usar el nombre que traiga el origen.
+        let a = Schema {
+            tables: vec![table_pk("t", vec![pk_col("id", "int", 1), col("codigo", "varchar(10)", false)], "PK_t")],
+            ..Default::default()
+        };
+        let b = Schema {
+            tables: vec![table_pk("t", vec![col("id", "int", false), pk_col("codigo", "varchar(10)", 2)], "PK_t_viejo")],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &b, Dialect::MySql);
+        assert!(s.contains("ALTER TABLE `dbo`.`t` DROP PRIMARY KEY;"), "{s}");
+        assert!(s.contains("ALTER TABLE `dbo`.`t` ADD PRIMARY KEY (`id`);"), "{s}");
+        assert!(!s.contains("DROP CONSTRAINT"), "{s}");
+        assert!(!s.contains("ADD CONSTRAINT `PK_t`"), "{s}");
+    }
+
+    #[test]
+    fn mysql_crea_tabla_con_la_pk_anonima() {
+        let a = Schema {
+            tables: vec![table_pk("clientes", vec![pk_col("id", "int", 1)], "PK_clientes")],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("PRIMARY KEY (`id`)"), "{s}");
+        assert!(!s.contains("CONSTRAINT `PK_clientes`"), "{s}");
+    }
+
+    #[test]
+    fn mysql_envuelve_el_procedimiento_en_delimiter() {
+        // Sin DELIMITER el cliente cortaría el cuerpo en su primer «;».
+        let a = Schema {
+            procedures: vec![Routine {
+                schema: "tienda".into(),
+                name: "sp".into(),
+                kind: RoutineKind::Procedure,
+                definition: "CREATE PROCEDURE `tienda`.`sp`() BEGIN SELECT 1; END".into(),
+            }],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("DELIMITER $$"), "{s}");
+        assert!(s.contains("END$$"), "{s}");
+        assert!(s.contains("DELIMITER ;"), "{s}");
+    }
+
+    #[test]
+    fn mysql_no_envuelve_las_vistas_en_delimiter() {
+        let a = Schema {
+            views: vec![Routine {
+                schema: "tienda".into(),
+                name: "v".into(),
+                kind: RoutineKind::View,
+                definition: "CREATE VIEW `tienda`.`v` AS SELECT 1".into(),
+            }],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("CREATE VIEW `tienda`.`v` AS SELECT 1;"), "{s}");
+        assert!(!s.contains("DELIMITER"), "{s}");
+    }
+
+    #[test]
+    fn mysql_envuelve_el_disparador_en_delimiter() {
+        use crate::model::Trigger;
+        let trg = Trigger {
+            schema: "tienda".into(),
+            name: "trg_x".into(),
+            table: "tienda.t".into(),
+            definition: "CREATE TRIGGER `trg_x` AFTER INSERT ON `t` FOR EACH ROW BEGIN SET @a = 1; END".into(),
+        };
+        let a = Schema { triggers: vec![trg.clone()], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("DELIMITER $$"), "{s}");
+        // Y al soltarlo se califica con la base, no con la tabla.
+        let s2 = generate_sync_script(&Schema::default(), &a, Dialect::MySql);
+        assert!(s2.contains("DROP TRIGGER IF EXISTS `tienda`.`trg_x`;"), "{s2}");
+    }
+
+    #[test]
+    fn mysql_dropea_indice_indicando_la_tabla() {
+        use crate::model::Index;
+        let b = Schema {
+            indexes: vec![Index { name: "ix1".into(), table: "tienda.c".into(), columns: vec!["a".into()], is_unique: false }],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&Schema::default(), &b, Dialect::MySql);
+        assert!(s.contains("DROP INDEX `ix1` ON `tienda`.`c`;"), "{s}");
+    }
+
+    #[test]
+    fn mysql_suelta_la_foranea_con_drop_foreign_key() {
+        use crate::model::ForeignKey;
+        let b = Schema {
+            foreign_keys: vec![ForeignKey {
+                name: "fk1".into(),
+                from_table: "tienda.pedidos".into(),
+                from_columns: vec!["cliente_id".into()],
+                to_table: "tienda.clientes".into(),
+                to_columns: vec!["id".into()],
+            }],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&Schema::default(), &b, Dialect::MySql);
+        // DROP CONSTRAINT solo existe desde MySQL 8.0.19; esta forma vale siempre.
+        assert!(s.contains("ALTER TABLE `tienda`.`pedidos` DROP FOREIGN KEY `fk1`;"), "{s}");
+    }
+
+    #[test]
+    fn mysql_antepone_check_a_la_expresion() {
+        use crate::model::CheckConstraint;
+        // information_schema.CHECK_CONSTRAINTS da solo la expresión, igual que
+        // SQL Server: el ALTER tiene que poner la palabra CHECK delante.
+        let a = Schema {
+            checks: vec![CheckConstraint { name: "ck_total".into(), table: "tienda.pedidos".into(), definition: "(`total` > 0)".into() }],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("ALTER TABLE `tienda`.`pedidos` ADD CONSTRAINT `ck_total` CHECK (`total` > 0);"), "{s}");
+    }
+
+    #[test]
+    fn mysql_se_anuncia_en_el_encabezado() {
+        let s = generate_sync_script(&Schema::default(), &Schema::default(), Dialect::MySql);
+        assert!(s.contains("Motor destino: MySQL / MariaDB"), "{s}");
     }
 }

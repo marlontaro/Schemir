@@ -183,7 +183,7 @@ body {
 .side-a { background: linear-gradient(135deg, #f5a623, #e8890b); }
 .side-b { background: linear-gradient(135deg, #46c4f5, #0ea5e9); }
 
-.segmented { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.segmented { display: flex; flex-wrap: wrap; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
 .seg { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 6px 12px; border-radius: 7px; font-size: 12px; font-weight: 600; transition: all 0.15s ease; }
 .seg:hover { color: var(--text); }
 .seg.active { background: var(--surface-3); color: var(--text); box-shadow: var(--shadow-sm); }

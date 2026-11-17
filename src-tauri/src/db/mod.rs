@@ -2,6 +2,7 @@
 //! de `schemir-core`. Aquí viven la configuración de conexión y el despacho
 //! según el motor elegido.
 
+pub mod mysql;
 pub mod postgres;
 pub mod sqlite;
 pub mod sqlserver;
@@ -20,6 +21,8 @@ pub enum EngineKind {
     SqlServer,
     Sqlite,
     Postgres,
+    /// MySQL y MariaDB (mismo protocolo, mismo lector).
+    MySql,
 }
 
 /// Datos de conexión que llegan desde la interfaz. Es un único objeto "plano"
@@ -28,7 +31,7 @@ pub enum EngineKind {
 pub struct ConnectionConfig {
     pub engine: EngineKind,
 
-    // --- SQL Server ---
+    // --- SQL Server / PostgreSQL / MySQL (motores con servidor) ---
     #[serde(default)]
     pub host: String,
     #[serde(default = "default_port")]
@@ -55,6 +58,7 @@ pub async fn read_schema(cfg: &ConnectionConfig) -> Result<Schema, String> {
     match cfg.engine {
         EngineKind::SqlServer => sqlserver::read_schema(cfg).await.map_err(|e| e.to_string()),
         EngineKind::Postgres => postgres::read_schema(cfg).await.map_err(|e| e.to_string()),
+        EngineKind::MySql => mysql::read_schema(cfg).await.map_err(|e| e.to_string()),
         EngineKind::Sqlite => run_blocking(cfg.path.clone(), sqlite::read_schema).await,
     }
 }
@@ -64,6 +68,7 @@ pub async fn test_connection(cfg: &ConnectionConfig) -> Result<String, String> {
     match cfg.engine {
         EngineKind::SqlServer => sqlserver::test_connection(cfg).await.map_err(|e| e.to_string()),
         EngineKind::Postgres => postgres::test_connection(cfg).await.map_err(|e| e.to_string()),
+        EngineKind::MySql => mysql::test_connection(cfg).await.map_err(|e| e.to_string()),
         EngineKind::Sqlite => run_blocking(cfg.path.clone(), sqlite::test_connection).await,
     }
 }
@@ -87,6 +92,7 @@ pub async fn apply_script(cfg: &ConnectionConfig, script: &str) -> Result<String
     match cfg.engine {
         EngineKind::SqlServer => sqlserver::apply_script(cfg, script).await.map_err(|e| e.to_string()),
         EngineKind::Postgres => postgres::apply_script(cfg, script).await.map_err(|e| e.to_string()),
+        EngineKind::MySql => mysql::apply_script(cfg, script).await.map_err(|e| e.to_string()),
         EngineKind::Sqlite => {
             let (path, script) = (cfg.path.clone(), script.to_string());
             tokio::task::spawn_blocking(move || sqlite::apply_script(&path, &script))
