@@ -56,6 +56,65 @@ fn column_ddl(d: Dialect, c: &Column) -> String {
     s
 }
 
+/// Escapa las comillas simples de un literal de texto SQL.
+fn sql_text(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+/// Guardia que detiene el script antes de una operación destructiva si la tabla
+/// afectada tiene filas.
+///
+/// Es el equivalente de «bloquear la implementación incremental si se puede
+/// producir pérdida de datos» de SSDT: las operaciones que pueden destruir datos
+/// (quitar una columna o una tabla, cambiar el tipo de una columna) se ejecutan
+/// solo si la tabla está vacía; si tiene filas, el script aborta antes de tocar
+/// nada. Los tres motores revierten lo ya hecho, porque Schemir aplica el script
+/// dentro de una transacción en SQLite y PostgreSQL, y en SQL Server el guardia
+/// va en su propio lote, antes del lote destructivo.
+fn data_loss_guard(d: Dialect, schema: &str, name: &str, reasons: &[String]) -> String {
+    let qn = d.qname(schema, name);
+    let plain = format!("{schema}.{name}");
+    let mut s = String::new();
+    let _ = writeln!(s, "-- ⚠ Posible pérdida de datos en {plain}: {}.", reasons.join("; "));
+    let _ = writeln!(
+        s,
+        "-- El script se detiene si la tabla tiene filas (opción «bloquear ante posible pérdida de datos»)."
+    );
+    let msg = format!("Schemir: {plain} tiene filas; se detiene por posible perdida de datos.");
+    match d {
+        Dialect::SqlServer => {
+            let _ = writeln!(s, "IF EXISTS (SELECT TOP 1 1 FROM {qn})");
+            let _ = writeln!(s, "    RAISERROR (N'{}', 16, 127) WITH NOWAIT;", sql_text(&msg));
+            let _ = writeln!(s, "GO");
+        }
+        Dialect::Postgres => {
+            let _ = writeln!(s, "DO $$");
+            let _ = writeln!(s, "BEGIN");
+            let _ = writeln!(s, "    IF EXISTS (SELECT 1 FROM {qn}) THEN");
+            let _ = writeln!(s, "        RAISE EXCEPTION '{}';", sql_text(&msg));
+            let _ = writeln!(s, "    END IF;");
+            let _ = writeln!(s, "END $$;");
+        }
+        Dialect::Sqlite => {
+            // SQLite no permite lanzar un error con un mensaje propio fuera de un
+            // disparador, así que insertamos una fila que viola un CHECK: si la
+            // tabla tiene filas, el INSERT falla y la transacción se revierte; si
+            // está vacía no inserta nada y el script continúa.
+            let _ = writeln!(
+                s,
+                "CREATE TEMP TABLE schemir_guard (ok INTEGER CONSTRAINT {} CHECK (ok = 1));",
+                d.quote(&msg)
+            );
+            let _ = writeln!(
+                s,
+                "INSERT INTO schemir_guard (ok) SELECT 0 WHERE EXISTS (SELECT 1 FROM {qn});"
+            );
+            let _ = writeln!(s, "DROP TABLE schemir_guard;");
+        }
+    }
+    s
+}
+
 fn sorted_columns(t: &Table) -> Vec<&Column> {
     let mut cols: Vec<&Column> = t.columns.iter().collect();
     cols.sort_by_key(|c| c.ordinal);
@@ -192,7 +251,17 @@ fn create_routine(d: Dialect, r: &Routine) -> String {
 }
 
 /// Emite los ALTER para que la tabla del destino quede como la del origen.
-fn alter_table(d: Dialect, src: &Table, tgt: &Table, o: &CompareOptions, out: &mut String, changes: &mut usize) {
+/// Emite los ALTER de columnas y además anota en `risks` las operaciones que
+/// pueden destruir datos, para que quien llama decida si antepone el guardia.
+fn alter_table(
+    d: Dialect,
+    src: &Table,
+    tgt: &Table,
+    o: &CompareOptions,
+    out: &mut String,
+    changes: &mut usize,
+    risks: &mut Vec<String>,
+) {
     let qn = d.qname(&src.schema, &src.name);
     let tgt_cols: BTreeMap<&str, &Column> =
         tgt.columns.iter().map(|c| (c.name.as_str(), c)).collect();
@@ -213,6 +282,20 @@ fn alter_table(d: Dialect, src: &Table, tgt: &Table, o: &CompareOptions, out: &m
                 *changes += 1;
             }
             Some(t) if !columns_equal(c, t, o) => {
+                // Cambiar el tipo puede truncar lo que ya hay guardado. En SQLite
+                // no emitimos ALTER (solo un comentario), así que allí no hay
+                // ninguna sentencia destructiva que frenar.
+                let type_changed = if o.ignore_case {
+                    !c.data_type.eq_ignore_ascii_case(&t.data_type)
+                } else {
+                    c.data_type != t.data_type
+                };
+                if type_changed && d != Dialect::Sqlite {
+                    risks.push(format!(
+                        "cambia el tipo de «{}» ({} → {})",
+                        c.name, t.data_type, c.data_type
+                    ));
+                }
                 match d {
                     Dialect::SqlServer => {
                         let _ = writeln!(
@@ -248,6 +331,7 @@ fn alter_table(d: Dialect, src: &Table, tgt: &Table, o: &CompareOptions, out: &m
     for c in sorted_columns(tgt) {
         if !src_names.contains(c.name.as_str()) {
             let _ = writeln!(out, "ALTER TABLE {qn} DROP COLUMN {};", d.quote(&c.name));
+            risks.push(format!("se elimina la columna «{}»", c.name));
             *changes += 1;
         }
     }
@@ -459,8 +543,12 @@ pub fn generate_sync_units_opts(source: &Schema, target: &Schema, d: Dialect, o:
             if let Some(tgt) = tgt_tables.get(&src.qualified_name()) {
                 let mut sql = String::new();
                 let mut changes = 0usize;
-                alter_table(d, src, tgt, o, &mut sql, &mut changes);
+                let mut risks: Vec<String> = Vec::new();
+                alter_table(d, src, tgt, o, &mut sql, &mut changes, &mut risks);
                 if changes > 0 {
+                    if o.block_on_data_loss && !risks.is_empty() {
+                        sql.insert_str(0, &data_loss_guard(d, &src.schema, &src.name, &risks));
+                    }
                     units.push(ScriptUnit::new("Tabla", src.qualified_name(), Different, "Cambios en columnas", sql));
                 }
             }
@@ -559,7 +647,14 @@ pub fn generate_sync_units_opts(source: &Schema, target: &Schema, d: Dialect, o:
     if o.tables {
         for t in &target.tables {
             if !src_tnames.contains(&t.qualified_name()) {
-                units.push(ScriptUnit::new("Tabla", t.qualified_name(), OnlyInRight, "Tablas eliminadas en el destino", format!("DROP TABLE IF EXISTS {};", d.qname(&t.schema, &t.name))));
+                let drop = format!("DROP TABLE IF EXISTS {};", d.qname(&t.schema, &t.name));
+                let sql = if o.block_on_data_loss {
+                    let reasons = vec!["se elimina la tabla completa".to_string()];
+                    format!("{}{drop}", data_loss_guard(d, &t.schema, &t.name, &reasons))
+                } else {
+                    drop
+                };
+                units.push(ScriptUnit::new("Tabla", t.qualified_name(), OnlyInRight, "Tablas eliminadas en el destino", sql));
             }
         }
     }
@@ -869,5 +964,77 @@ mod tests {
         // Dropear en PostgreSQL: con la tabla (ON …).
         let s3 = generate_sync_script(&Schema::default(), &a, Dialect::Postgres);
         assert!(s3.contains("DROP TRIGGER IF EXISTS \"trg_x\" ON \"main\".\"t\";"), "{s3}");
+    }
+
+    // ── Bloqueo ante posible pérdida de datos ──────────────────────────────
+
+    #[test]
+    fn bloquea_al_quitar_una_columna() {
+        let a = Schema { tables: vec![table("C", vec![col("Id", "int", false)])], ..Default::default() };
+        let b = Schema {
+            tables: vec![table("C", vec![col("Id", "int", false), col("Email", "varchar(50)", true)])],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("IF EXISTS (SELECT TOP 1 1 FROM [dbo].[C])"), "{s}");
+        assert!(s.contains("RAISERROR"), "{s}");
+        assert!(s.contains("se elimina la columna «Email»"), "{s}");
+        // El guardia va ANTES de la sentencia destructiva.
+        let guardia = s.find("RAISERROR").unwrap();
+        let drop = s.find("DROP COLUMN").unwrap();
+        assert!(guardia < drop, "el guardia debe preceder al DROP COLUMN:\n{s}");
+    }
+
+    #[test]
+    fn bloquea_al_cambiar_el_tipo_de_una_columna() {
+        let a = Schema { tables: vec![table("C", vec![col("Email", "varchar(50)", true)])], ..Default::default() };
+        let b = Schema { tables: vec![table("C", vec![col("Email", "varchar(100)", true)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("cambia el tipo de «Email» (varchar(100) → varchar(50))"), "{s}");
+        assert!(s.contains("RAISERROR"), "{s}");
+    }
+
+    #[test]
+    fn bloquea_al_eliminar_una_tabla_en_postgres() {
+        let a = Schema::default();
+        let b = Schema { tables: vec![table("Vieja", vec![col("Id", "int", false)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::Postgres);
+        assert!(s.contains("IF EXISTS (SELECT 1 FROM \"dbo\".\"Vieja\") THEN"), "{s}");
+        assert!(s.contains("RAISE EXCEPTION"), "{s}");
+        assert!(s.contains("se elimina la tabla completa"), "{s}");
+    }
+
+    #[test]
+    fn en_sqlite_el_guardia_usa_un_check() {
+        let a = Schema::default();
+        let b = Schema { tables: vec![table("Vieja", vec![col("Id", "int", false)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::Sqlite);
+        assert!(s.contains("CREATE TEMP TABLE schemir_guard"), "{s}");
+        assert!(s.contains("WHERE EXISTS (SELECT 1 FROM \"dbo\".\"Vieja\")"), "{s}");
+    }
+
+    #[test]
+    fn agregar_una_columna_no_bloquea() {
+        let a = Schema {
+            tables: vec![table("C", vec![col("Id", "int", false), col("Email", "varchar(50)", true)])],
+            ..Default::default()
+        };
+        let b = Schema { tables: vec![table("C", vec![col("Id", "int", false)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("ADD [Email]"), "{s}");
+        assert!(!s.contains("RAISERROR"), "agregar no destruye nada:\n{s}");
+    }
+
+    #[test]
+    fn sin_guardia_cuando_la_opcion_esta_apagada() {
+        let a = Schema { tables: vec![table("C", vec![col("Id", "int", false)])], ..Default::default() };
+        let b = Schema {
+            tables: vec![table("C", vec![col("Id", "int", false), col("Email", "varchar(50)", true)])],
+            ..Default::default()
+        };
+        let o = CompareOptions { block_on_data_loss: false, ..Default::default() };
+        let s = generate_sync_script_opts(&a, &b, Dialect::SqlServer, &o);
+        assert!(s.contains("DROP COLUMN [Email]"), "{s}");
+        assert!(!s.contains("RAISERROR"), "{s}");
     }
 }

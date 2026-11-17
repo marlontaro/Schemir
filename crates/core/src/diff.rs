@@ -87,6 +87,12 @@ pub struct CompareOptions {
     pub ignore_comments: bool,
     /// Tratar las columnas como iguales aunque cambie su valor por defecto.
     pub ignore_column_default: bool,
+    /// Anteponer un guardia que detiene el script antes de una operación
+    /// destructiva (quitar una columna o una tabla, cambiar el tipo de una
+    /// columna) si la tabla afectada tiene filas. Es el equivalente de
+    /// «bloquear la implementación incremental si se puede producir pérdida de
+    /// datos» de SSDT, y como allí viene activado por defecto.
+    pub block_on_data_loss: bool,
     // Qué tipos de objeto comparar.
     pub tables: bool,
     pub views: bool,
@@ -106,6 +112,7 @@ impl Default for CompareOptions {
             ignore_whitespace: true,
             ignore_comments: false,
             ignore_column_default: false,
+            block_on_data_loss: true,
             tables: true,
             views: true,
             procedures: true,

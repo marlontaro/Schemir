@@ -190,6 +190,11 @@
                 <label><input type="checkbox" data-opt="primary_keys" /><span data-i18n="opt.pks">Claves primarias</span></label>
                 <label><input type="checkbox" data-opt="triggers" /><span data-i18n="opt.triggers">Disparadores</span></label>
               </fieldset>
+              <fieldset>
+                <legend data-i18n="opt.safety">Seguridad</legend>
+                <label><input type="checkbox" data-opt="block_on_data_loss" /><span data-i18n="opt.blockDataLoss">Bloquear ante posible pérdida de datos</span></label>
+                <p class="hint" data-i18n="opt.blockDataLossHelp">Antepone al script una comprobación que lo detiene si la tabla tiene filas, antes de quitar una columna o una tabla o de cambiar un tipo.</p>
+              </fieldset>
             </div>
           </details>
 

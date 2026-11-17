@@ -76,6 +76,10 @@ const I18N = {
     "opt.checks": "Restricciones CHECK",
     "opt.pks": "Claves primarias",
     "opt.triggers": "Disparadores",
+    "opt.safety": "Seguridad",
+    "opt.blockDataLoss": "Bloquear ante posible pérdida de datos",
+    "opt.blockDataLossHelp":
+      "Antepone al script una comprobación que lo detiene si la tabla tiene filas, antes de quitar una columna o una tabla o de cambiar un tipo.",
     "step.connection": "Conexión",
     "step.comparison": "Comparación",
     "btn.back": "← Conexión",
@@ -221,6 +225,10 @@ const I18N = {
     "opt.checks": "CHECK constraints",
     "opt.pks": "Primary keys",
     "opt.triggers": "Triggers",
+    "opt.safety": "Safety",
+    "opt.blockDataLoss": "Block on possible data loss",
+    "opt.blockDataLossHelp":
+      "Prepends a check that stops the script if the table has rows, before dropping a column or a table or changing a type.",
     "step.connection": "Connection",
     "step.comparison": "Comparison",
     "btn.back": "← Connection",
@@ -446,6 +454,7 @@ let searchText = "";
 // Opciones de comparación (persistidas); los nombres coinciden con Rust CompareOptions.
 const DEFAULT_OPTIONS = {
   ignore_case: true, ignore_whitespace: true, ignore_comments: false, ignore_column_default: false,
+  block_on_data_loss: true,
   tables: true, views: true, procedures: true, functions: true, indexes: true, foreign_keys: true, checks: true, primary_keys: true, triggers: true,
 };
 let compareOptions = (() => {
