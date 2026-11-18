@@ -187,7 +187,7 @@ mod tests {
     use crate::model::{Column, ForeignKey, Schema, Table};
 
     fn col(name: &str, ty: &str, pk: bool, ord: i32) -> Column {
-        Column { name: name.into(), data_type: ty.into(), is_nullable: true, default_value: None, ordinal: ord, is_primary_key: pk }
+        Column { name: name.into(), data_type: ty.into(), is_nullable: true, default_value: None, ordinal: ord, is_primary_key: pk, identity: None }
     }
 
     #[test]

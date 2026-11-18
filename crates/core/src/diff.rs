@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{CheckConstraint, Column, ForeignKey, Index, Routine, Schema, Table, Trigger};
+use crate::model::{CheckConstraint, Column, ForeignKey, Identity, Index, Routine, Schema, Table, Trigger};
 
 /// Estado de un objeto al comparar los dos esquemas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -244,9 +244,14 @@ fn diff_columns(left: &[Column], right: &[Column], o: &CompareOptions) -> Vec<Fi
     diffs
 }
 
-/// Dos columnas son "iguales" si coinciden tipo, nulabilidad y valor por defecto.
+/// Dos columnas son "iguales" si coinciden tipo, nulabilidad, valor por defecto
+/// y autogeneración.
 /// La posición (`ordinal`) no se compara para no generar ruido por reordenamientos.
 /// Las opciones permiten ignorar may/min del tipo y el valor por defecto.
+///
+/// La autogeneración entra en la comparación sin opción para apagarla: que una
+/// columna la tenga o no cambia cómo se escribe en ella, y pasarla por alto era
+/// justo lo que hacía que el destino se quedara sin `IDENTITY` en silencio.
 pub(crate) fn columns_equal(a: &Column, b: &Column, o: &CompareOptions) -> bool {
     let type_eq = if o.ignore_case {
         a.data_type.eq_ignore_ascii_case(&b.data_type)
@@ -254,15 +259,34 @@ pub(crate) fn columns_equal(a: &Column, b: &Column, o: &CompareOptions) -> bool 
         a.data_type == b.data_type
     };
     let default_eq = o.ignore_column_default || a.default_value == b.default_value;
-    type_eq && a.is_nullable == b.is_nullable && default_eq
+    type_eq && a.is_nullable == b.is_nullable && default_eq && a.identity == b.identity
+}
+
+/// Cómo se autogenera una columna, para la vista de diferencias.
+///
+/// Va en vocabulario SQL y no en prosa: esta cadena se muestra tal cual en la
+/// interfaz, que es bilingue, y `IDENTITY(1,1)` se lee igual en los dos idiomas
+/// (es tambien la palabra que usa SSDT). `ALWAYS` marca la columna que el motor
+/// no deja escribir a mano.
+fn describe_identity(id: &Identity) -> String {
+    let mut s = format!("IDENTITY({},{})", id.seed, id.increment);
+    if id.always {
+        s.push_str(" ALWAYS");
+    }
+    s
 }
 
 fn describe_column(c: &Column) -> String {
     let null = if c.is_nullable { "NULL" } else { "NOT NULL" };
-    match &c.default_value {
+    let mut s = match &c.default_value {
         Some(d) => format!("{} {} DEFAULT {}", c.data_type, null, d),
         None => format!("{} {}", c.data_type, null),
+    };
+    if let Some(id) = &c.identity {
+        s.push_str(" · ");
+        s.push_str(&describe_identity(id));
     }
+    s
 }
 
 fn diff_routines(type_label: &str, left: &[Routine], right: &[Routine], o: &CompareOptions, out: &mut Vec<ObjectDiff>) {
@@ -510,6 +534,7 @@ mod tests {
             default_value: None,
             ordinal: 0,
             is_primary_key: false,
+            identity: None,
         }
     }
 
@@ -663,5 +688,23 @@ mod tests {
         let a = Schema { triggers: vec![trg("CREATE TRIGGER trg_x BEGIN SELECT 1; END")], ..Default::default() };
         let b = Schema { triggers: vec![trg("CREATE TRIGGER trg_x BEGIN SELECT 2; END")], ..Default::default() };
         assert_eq!(compare_schemas(&a, &b).objects[0].status, DiffStatus::Different);
+    }
+
+    #[test]
+    fn la_autogeneracion_cuenta_como_diferencia() {
+        // Mismo nombre, mismo tipo, misma nulabilidad: lo único distinto es que
+        // en A la columna se autogenera. Antes esto pasaba desapercibido y el
+        // destino se quedaba sin IDENTITY en silencio.
+        let mut auto = col("Id", "int", false);
+        auto.identity = Some(Identity::simple());
+        let left = Schema { tables: vec![table("Clientes", vec![auto])], ..Default::default() };
+        let right = Schema { tables: vec![table("Clientes", vec![col("Id", "int", false)])], ..Default::default() };
+        let r = compare_schemas(&left, &right);
+        assert_eq!(r.objects[0].status, DiffStatus::Different);
+        assert_eq!(r.objects[0].details.len(), 1);
+        let d = &r.objects[0].details[0];
+        assert!(d.field.contains("Id"), "{d:?}");
+        assert!(d.left.as_deref().unwrap_or("").contains("IDENTITY(1,1)"), "{d:?}");
+        assert!(!d.right.as_deref().unwrap_or("").contains("IDENTITY"), "{d:?}");
     }
 }

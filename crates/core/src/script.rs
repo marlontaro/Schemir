@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
 use crate::diff::{columns_equal, normalize_def, pk_columns, CompareOptions, DiffStatus};
-use crate::model::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
+use crate::model::{CheckConstraint, Column, ForeignKey, Identity, Index, Routine, RoutineKind, Schema, Table, Trigger};
 
 /// Dialecto SQL del destino (determina el entrecomillado y la sintaxis).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,11 +52,108 @@ fn null_kw(c: &Column) -> &'static str {
     }
 }
 
-/// Definición de una columna: `[nombre] tipo NULL/NOT NULL [DEFAULT x]`.
+/// Cómo declara cada motor que una columna se autogenera.
+///
+/// Devuelve `None` cuando el dialecto no puede expresarlo dentro de la
+/// definición de la columna. Ese es el caso de SQLite: allí `AUTOINCREMENT` solo
+/// vale pegado a `INTEGER PRIMARY KEY` (ver `sqlite_autoincrement`).
+fn identity_clause(d: Dialect, id: &Identity) -> Option<String> {
+    match d {
+        Dialect::SqlServer => Some(format!("IDENTITY({},{})", id.seed, id.increment)),
+        Dialect::Postgres => {
+            let kind = if id.always { "ALWAYS" } else { "BY DEFAULT" };
+            Some(if id.seed == 1 && id.increment == 1 {
+                format!("GENERATED {kind} AS IDENTITY")
+            } else {
+                format!(
+                    "GENERATED {kind} AS IDENTITY (START WITH {} INCREMENT BY {})",
+                    id.seed, id.increment
+                )
+            })
+        }
+        // El inicio y el incremento no se pueden poner aquí: el primero es una
+        // opción de la tabla y el segundo una variable de sesión. Si venían
+        // distintos de 1, `identity_note` lo avisa.
+        Dialect::MySql => Some("AUTO_INCREMENT".to_string()),
+        Dialect::Sqlite => None,
+    }
+}
+
+/// ¿Puede SQLite declarar que esta columna se autogenera?
+///
+/// Solo de una forma: `INTEGER PRIMARY KEY AUTOINCREMENT`, y escrita pegada a la
+/// columna, no como restricción de tabla. Si la clave primaria es compuesta, si
+/// la columna no es la clave primaria o si el tipo no es entero, SQLite no tiene
+/// manera de expresarlo.
+fn sqlite_autoincrement(t: &Table, c: &Column) -> bool {
+    c.identity.is_some()
+        && c.data_type.eq_ignore_ascii_case("integer")
+        && pk_columns(t) == [c.name.clone()]
+}
+
+/// Aviso (como comentario SQL) cuando el destino NO va a poder autogenerar una
+/// columna que en el origen sí se autogenera, o no va a poder hacerlo igual.
+///
+/// Es el punto del arreglo: antes el `IDENTITY` o el `AUTO_INCREMENT` se perdía
+/// al recrear la tabla y nadie se enteraba. Ahora, o se emite, o se dice por qué
+/// no se pudo.
+fn identity_note(d: Dialect, t: &Table, c: &Column) -> Option<String> {
+    let id = c.identity.as_ref()?;
+    let mut out = String::new();
+    if d == Dialect::Sqlite && !sqlite_autoincrement(t, c) {
+        let _ = writeln!(
+            out,
+            "-- (!) «{}» se autogenera en el origen, pero SQLite solo lo admite en una columna «integer» que sea ella sola la clave primaria: en el destino NO se autogenerará.",
+            c.name
+        );
+    }
+    if d == Dialect::MySql && (id.seed != 1 || id.increment != 1) {
+        let _ = writeln!(
+            out,
+            "-- (!) «{}» empieza en {} y avanza de {} en {}: MySQL / MariaDB no lo expresan por columna, así que en el destino empezará en 1 y avanzará de 1 en 1.",
+            c.name, id.seed, id.increment, id.increment
+        );
+    }
+    if d == Dialect::MySql && !c.is_primary_key {
+        let _ = writeln!(
+            out,
+            "-- (!) MySQL / MariaDB exigen que la columna AUTO_INCREMENT sea clave: «{}» no lo es en el origen, así que este SQL fallará tal cual.",
+            c.name
+        );
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// Todos los avisos de autogeneración de una tabla, uno detrás de otro.
+fn identity_notes(d: Dialect, t: &Table) -> String {
+    sorted_columns(t)
+        .iter()
+        .filter_map(|c| identity_note(d, t, c))
+        .collect()
+}
+
+/// Definición de una columna: `[nombre] tipo NULL/NOT NULL [autogeneración] [DEFAULT x]`.
 fn column_ddl(d: Dialect, c: &Column) -> String {
-    let mut s = format!("{} {} {}", d.quote(&c.name), c.data_type, null_kw(c));
-    if let Some(def) = &c.default_value {
-        let _ = write!(s, " DEFAULT {def}");
+    let clause = c.identity.as_ref().and_then(|id| identity_clause(d, id));
+    // SQL Server quiere `IDENTITY(..)` entre el tipo y la nulabilidad;
+    // PostgreSQL y MySQL la quieren después.
+    let mut s = match (&clause, d) {
+        (Some(cl), Dialect::SqlServer) => {
+            format!("{} {} {cl} {}", d.quote(&c.name), c.data_type, null_kw(c))
+        }
+        (Some(cl), _) => format!("{} {} {} {cl}", d.quote(&c.name), c.data_type, null_kw(c)),
+        (None, _) => format!("{} {} {}", d.quote(&c.name), c.data_type, null_kw(c)),
+    };
+    // Una columna que se autogenera no lleva DEFAULT: los motores rechazan las
+    // dos cosas juntas, y el valor lo pone el motor.
+    if c.identity.is_none() {
+        if let Some(def) = &c.default_value {
+            let _ = write!(s, " DEFAULT {def}");
+        }
     }
     s
 }
@@ -252,14 +349,37 @@ fn create_table(d: Dialect, t: &Table) -> String {
     // Columnas primero y, si la tabla tiene clave primaria, su cláusula al final.
     // Sin esto la tabla nacía sin PK en el destino y cualquier clave foránea que
     // la referenciara fallaba después (SQL Server y PostgreSQL exigen la unicidad).
-    let mut parts: Vec<String> = sorted_columns(t)
-        .iter()
-        .map(|c| format!("    {}", column_ddl(d, c)))
-        .collect();
-    if let Some(pk) = primary_key_ddl(d, t) {
-        parts.push(format!("    {pk}"));
+    //
+    // La excepción es SQLite: si una columna va a llevar AUTOINCREMENT, su
+    // PRIMARY KEY tiene que ir pegado a ella y la cláusula de tabla ya no cabe
+    // (el motor rechaza que la clave primaria se declare dos veces).
+    let cols = sorted_columns(t);
+    let inline_pk = d == Dialect::Sqlite && cols.iter().any(|c| sqlite_autoincrement(t, c));
+    let mut parts: Vec<String> = Vec::with_capacity(cols.len() + 1);
+    for c in &cols {
+        if d == Dialect::Sqlite && sqlite_autoincrement(t, c) {
+            // NOT NULL es implícito: un «integer primary key» de SQLite es alias
+            // de `rowid` y nunca es nulo.
+            parts.push(format!(
+                "    {} {} PRIMARY KEY AUTOINCREMENT",
+                d.quote(&c.name),
+                c.data_type
+            ));
+        } else {
+            parts.push(format!("    {}", column_ddl(d, c)));
+        }
     }
-    format!("CREATE TABLE {} (\n{}\n);", d.qname(&t.schema, &t.name), parts.join(",\n"))
+    if !inline_pk {
+        if let Some(pk) = primary_key_ddl(d, t) {
+            parts.push(format!("    {pk}"));
+        }
+    }
+    format!(
+        "{}CREATE TABLE {} (\n{}\n);",
+        identity_notes(d, t),
+        d.qname(&t.schema, &t.name),
+        parts.join(",\n")
+    )
 }
 
 fn routine_keyword(kind: RoutineKind) -> &'static str {
@@ -325,6 +445,19 @@ fn alter_table(
     for c in sorted_columns(src) {
         match tgt_cols.get(c.name.as_str()) {
             None => {
+                // Una columna que se autogenera no siempre se puede agregar así:
+                // el aviso va delante del ALTER para que se vea al revisarlo.
+                if d == Dialect::Sqlite && c.identity.is_some() {
+                    // `AUTOINCREMENT` solo se declara al crear la tabla: ningún
+                    // ALTER de SQLite lo admite, ni siquiera sobre la PK.
+                    let _ = writeln!(
+                        out,
+                        "-- (!) «{}» se autogenera en el origen, pero SQLite no puede agregar una columna AUTOINCREMENT con ALTER: hay que recrear {qn}.",
+                        c.name
+                    );
+                } else if let Some(note) = identity_note(d, src, c) {
+                    out.push_str(&note);
+                }
                 match d {
                     Dialect::SqlServer => {
                         let _ = writeln!(out, "ALTER TABLE {qn} ADD {};", column_ddl(d, c));
@@ -350,15 +483,27 @@ fn alter_table(
                         c.name, t.data_type, c.data_type
                     ));
                 }
+                // Que una columna empiece o deje de autogenerarse es un cambio
+                // aparte, y cada motor lo trata muy distinto: PostgreSQL lo hace
+                // con un ALTER, MySQL redefiniendo la columna entera, y SQL
+                // Server y SQLite no pueden sin recrear la tabla.
+                let identity_changed = c.identity != t.identity;
+                let col = d.quote(&c.name);
                 match d {
                     Dialect::SqlServer => {
                         let _ = writeln!(
                             out,
-                            "ALTER TABLE {qn} ALTER COLUMN {} {} {};",
-                            d.quote(&c.name),
+                            "ALTER TABLE {qn} ALTER COLUMN {col} {} {};",
                             c.data_type,
                             null_kw(c)
                         );
+                        if identity_changed {
+                            let _ = writeln!(
+                                out,
+                                "-- (!) SQL Server no puede poner ni quitar IDENTITY en «{}» con ALTER: hay que recrear {qn} (o agregar una columna nueva y copiar los datos).",
+                                c.name
+                            );
+                        }
                     }
                     Dialect::Sqlite => {
                         let _ = writeln!(
@@ -370,18 +515,74 @@ fn alter_table(
                             c.data_type,
                             null_kw(c)
                         );
+                        if identity_changed {
+                            let _ = writeln!(
+                                out,
+                                "-- (!) Y lo mismo con su autogeneración: AUTOINCREMENT solo se puede declarar al crear la tabla."
+                            );
+                        }
                     }
                     Dialect::Postgres => {
-                        let _ = writeln!(out, "ALTER TABLE {qn} ALTER COLUMN {} TYPE {};", d.quote(&c.name), c.data_type);
+                        // Solo si el tipo cambió de verdad: en PostgreSQL un
+                        // ALTER COLUMN TYPE reescribe la tabla entera, incluso
+                        // cuando el tipo nuevo es igual al viejo.
+                        if type_changed {
+                            let _ = writeln!(out, "ALTER TABLE {qn} ALTER COLUMN {col} TYPE {};", c.data_type);
+                        }
+                        if !type_changed && !identity_changed {
+                            let _ = writeln!(
+                                out,
+                                "-- (!) «{}» de {qn} difiere en la nulabilidad o en el valor por defecto, y Schemir todavía no sincroniza ninguna de las dos.",
+                                c.name
+                            );
+                        }
+                        if identity_changed {
+                            match (&t.identity, &c.identity) {
+                                (Some(_), None) => {
+                                    let _ = writeln!(out, "ALTER TABLE {qn} ALTER COLUMN {col} DROP IDENTITY;");
+                                }
+                                (None, Some(id)) => {
+                                    // PostgreSQL exige que una columna de
+                                    // identidad sea NOT NULL.
+                                    if !c.is_nullable {
+                                        let _ = writeln!(out, "ALTER TABLE {qn} ALTER COLUMN {col} SET NOT NULL;");
+                                    }
+                                    if let Some(clause) = identity_clause(d, id) {
+                                        let _ = writeln!(out, "ALTER TABLE {qn} ALTER COLUMN {col} ADD {clause};");
+                                    }
+                                }
+                                (Some(before), Some(after)) => {
+                                    if before.always != after.always {
+                                        let kind = if after.always { "ALWAYS" } else { "BY DEFAULT" };
+                                        let _ = writeln!(out, "ALTER TABLE {qn} ALTER COLUMN {col} SET GENERATED {kind};");
+                                    }
+                                    if before.seed != after.seed {
+                                        let _ = writeln!(out, "ALTER TABLE {qn} ALTER COLUMN {col} SET START WITH {};", after.seed);
+                                    }
+                                    if before.increment != after.increment {
+                                        let _ = writeln!(out, "ALTER TABLE {qn} ALTER COLUMN {col} SET INCREMENT BY {};", after.increment);
+                                    }
+                                }
+                                (None, None) => {}
+                            }
+                        }
                     }
                     // MySQL/MariaDB redefinen la columna entera con MODIFY COLUMN:
-                    // hay que repetir el tipo Y la nulabilidad, porque lo que no
-                    // se escribe vuelve a su valor por defecto (NULL).
+                    // hay que repetir el tipo, la nulabilidad Y el AUTO_INCREMENT,
+                    // porque lo que no se escribe vuelve a su valor por defecto.
                     Dialect::MySql => {
+                        let auto = c
+                            .identity
+                            .as_ref()
+                            .and_then(|id| identity_clause(d, id))
+                            .map(|cl| format!(" {cl}"))
+                            .unwrap_or_default();
+                        if let Some(note) = identity_note(d, src, c) {
+                            out.push_str(&note);
+                        }
                         let _ = writeln!(
                             out,
-                            "ALTER TABLE {qn} MODIFY COLUMN {} {} {};",
-                            d.quote(&c.name),
+                            "ALTER TABLE {qn} MODIFY COLUMN {col} {} {}{auto};",
                             c.data_type,
                             null_kw(c)
                         );
@@ -796,6 +997,7 @@ mod tests {
             default_value: None,
             ordinal: 0,
             is_primary_key: false,
+            identity: None,
         }
     }
     /// Columna que forma parte de la clave primaria (con su posición).
@@ -807,6 +1009,20 @@ mod tests {
             default_value: None,
             ordinal,
             is_primary_key: true,
+            identity: None,
+        }
+    }
+    /// Columna que es la clave primaria Y se autogenera: el caso normal de una
+    /// tabla con `IDENTITY` / `AUTO_INCREMENT` / `AUTOINCREMENT`.
+    fn id_col(name: &str, ty: &str, id: Identity) -> Column {
+        Column {
+            name: name.into(),
+            data_type: ty.into(),
+            is_nullable: false,
+            default_value: None,
+            ordinal: 0,
+            is_primary_key: true,
+            identity: Some(id),
         }
     }
     fn table(name: &str, cols: Vec<Column>) -> Table {
@@ -1294,5 +1510,184 @@ mod tests {
     fn mysql_se_anuncia_en_el_encabezado() {
         let s = generate_sync_script(&Schema::default(), &Schema::default(), Dialect::MySql);
         assert!(s.contains("Motor destino: MySQL / MariaDB"), "{s}");
+    }
+
+    // ── Columnas que se autogeneran (IDENTITY / AUTO_INCREMENT / …) ─────────
+
+    #[test]
+    fn sql_server_emite_identity_al_crear_la_tabla() {
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "int", Identity::simple())])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::SqlServer);
+        // IDENTITY va entre el tipo y la nulabilidad, y la tabla nace con su PK.
+        assert!(s.contains("[Id] int IDENTITY(1,1) NOT NULL"), "{s}");
+        assert!(s.contains("PRIMARY KEY ([Id])"), "{s}");
+    }
+
+    #[test]
+    fn sql_server_respeta_el_inicio_y_el_incremento() {
+        let id = Identity { seed: 100, increment: 5, always: false };
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "bigint", id)])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::SqlServer);
+        assert!(s.contains("IDENTITY(100,5)"), "{s}");
+    }
+
+    #[test]
+    fn postgres_emite_generated_by_default() {
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "integer", Identity::simple())])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::Postgres);
+        assert!(s.contains("\"Id\" integer NOT NULL GENERATED BY DEFAULT AS IDENTITY"), "{s}");
+    }
+
+    #[test]
+    fn postgres_distingue_generated_always() {
+        let id = Identity { seed: 1, increment: 1, always: true };
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "integer", id)])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::Postgres);
+        assert!(s.contains("GENERATED ALWAYS AS IDENTITY"), "{s}");
+    }
+
+    #[test]
+    fn postgres_lleva_el_inicio_y_el_incremento_entre_parentesis() {
+        let id = Identity { seed: 7, increment: 2, always: false };
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "integer", id)])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::Postgres);
+        assert!(s.contains("GENERATED BY DEFAULT AS IDENTITY (START WITH 7 INCREMENT BY 2)"), "{s}");
+    }
+
+    #[test]
+    fn mysql_emite_auto_increment() {
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "int", Identity::simple())])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("`Id` int NOT NULL AUTO_INCREMENT"), "{s}");
+        // Siendo la clave primaria, no hace falta ningún aviso. (El "(!)" a
+        // secas no sirve: el encabezado del script ya lleva uno.)
+        assert!(!s.contains("exigen que la columna AUTO_INCREMENT"), "{s}");
+        assert!(!s.contains("empieza en"), "{s}");
+    }
+
+    #[test]
+    fn mysql_avisa_que_no_puede_con_el_inicio() {
+        let id = Identity { seed: 100, increment: 1, always: false };
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "int", id)])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("AUTO_INCREMENT"), "{s}");
+        assert!(s.contains("empieza en 100"), "{s}");
+    }
+
+    #[test]
+    fn mysql_avisa_si_la_columna_autogenerada_no_es_clave() {
+        let mut c = col("N", "int", false);
+        c.identity = Some(Identity::simple());
+        let a = Schema { tables: vec![table("C", vec![c])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
+        assert!(s.contains("exigen que la columna AUTO_INCREMENT sea clave"), "{s}");
+    }
+
+    #[test]
+    fn sqlite_pega_autoincrement_a_la_clave_primaria() {
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "integer", Identity::simple())])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::Sqlite);
+        assert!(s.contains("\"Id\" integer PRIMARY KEY AUTOINCREMENT"), "{s}");
+        // Y la clave primaria NO se declara dos veces: SQLite lo rechaza.
+        assert_eq!(s.matches("PRIMARY KEY").count(), 1, "{s}");
+        // Sin avisos: aquí SQLite sí puede con lo que pide el origen.
+        assert!(!s.contains("NO se autogenerará"), "{s}");
+    }
+
+    #[test]
+    fn sqlite_avisa_cuando_no_puede_autogenerar() {
+        // Clave primaria compuesta: AUTOINCREMENT no cabe en ninguna parte.
+        let mut primera = pk_col("Id", "integer", 0);
+        primera.identity = Some(Identity::simple());
+        let a = Schema {
+            tables: vec![table("C", vec![primera, pk_col("Linea", "integer", 1)])],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::Sqlite);
+        assert!(s.contains("NO se autogenerará"), "{s}");
+        assert!(!s.contains("AUTOINCREMENT"), "{s}");
+    }
+
+    #[test]
+    fn una_columna_que_se_autogenera_no_lleva_default() {
+        let mut c = id_col("Id", "int", Identity::simple());
+        c.default_value = Some("0".into());
+        let a = Schema { tables: vec![table("C", vec![c])], ..Default::default() };
+        let s = generate_sync_script(&a, &Schema::default(), Dialect::SqlServer);
+        assert!(s.contains("IDENTITY(1,1)"), "{s}");
+        assert!(!s.contains("DEFAULT"), "{s}");
+    }
+
+    #[test]
+    fn agregar_una_columna_que_se_autogenera() {
+        let mut nueva = col("Num", "int", false);
+        nueva.identity = Some(Identity::simple());
+        nueva.is_primary_key = true;
+        let a = Schema { tables: vec![table("C", vec![nueva])], ..Default::default() };
+        let b = Schema { tables: vec![table("C", vec![col("Otra", "int", true)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("ALTER TABLE [dbo].[C] ADD [Num] int IDENTITY(1,1) NOT NULL;"), "{s}");
+    }
+
+    #[test]
+    fn sqlite_no_puede_agregar_autoincrement_con_alter() {
+        let a = Schema {
+            tables: vec![table("C", vec![id_col("Id", "integer", Identity::simple()), col("N", "integer", true)])],
+            ..Default::default()
+        };
+        let b = Schema { tables: vec![table("C", vec![col("N", "integer", true)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::Sqlite);
+        assert!(s.contains("SQLite no puede agregar una columna AUTOINCREMENT con ALTER"), "{s}");
+    }
+
+    #[test]
+    fn postgres_pone_y_quita_la_identidad_con_alter() {
+        let plano = table("C", vec![pk_col("Id", "integer", 0)]);
+        let auto = table("C", vec![id_col("Id", "integer", Identity::simple())]);
+        // B sin identidad y A con ella: hay que ponerla.
+        let s = generate_sync_script(
+            &Schema { tables: vec![auto.clone()], ..Default::default() },
+            &Schema { tables: vec![plano.clone()], ..Default::default() },
+            Dialect::Postgres,
+        );
+        assert!(s.contains("ALTER COLUMN \"Id\" ADD GENERATED BY DEFAULT AS IDENTITY;"), "{s}");
+        // Y al revés: hay que quitarla.
+        let s2 = generate_sync_script(
+            &Schema { tables: vec![plano], ..Default::default() },
+            &Schema { tables: vec![auto], ..Default::default() },
+            Dialect::Postgres,
+        );
+        assert!(s2.contains("ALTER COLUMN \"Id\" DROP IDENTITY;"), "{s2}");
+    }
+
+    #[test]
+    fn sql_server_avisa_que_no_puede_cambiar_identity_con_alter() {
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "int", Identity::simple())])], ..Default::default() };
+        let b = Schema { tables: vec![table("C", vec![pk_col("Id", "int", 0)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("no puede poner ni quitar IDENTITY"), "{s}");
+    }
+
+    #[test]
+    fn mysql_repite_el_auto_increment_al_modificar() {
+        let a = Schema { tables: vec![table("C", vec![id_col("Id", "bigint", Identity::simple())])], ..Default::default() };
+        let b = Schema { tables: vec![table("C", vec![pk_col("Id", "int", 0)])], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::MySql);
+        assert!(s.contains("MODIFY COLUMN `Id` bigint NOT NULL AUTO_INCREMENT;"), "{s}");
+    }
+
+    #[test]
+    fn postgres_no_reescribe_la_tabla_si_solo_cambia_la_identidad() {
+        let plano = table("C", vec![pk_col("Id", "integer", 0)]);
+        let auto = table("C", vec![id_col("Id", "integer", Identity::simple())]);
+        let s = generate_sync_script(
+            &Schema { tables: vec![auto], ..Default::default() },
+            &Schema { tables: vec![plano], ..Default::default() },
+            Dialect::Postgres,
+        );
+        assert!(s.contains("ADD GENERATED BY DEFAULT AS IDENTITY"), "{s}");
+        // Un `ALTER COLUMN ... TYPE` con el mismo tipo reescribe la tabla entera
+        // por nada: no debe salir.
+        assert!(!s.contains("TYPE integer"), "{s}");
     }
 }

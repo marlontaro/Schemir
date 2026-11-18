@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 
 use mysql_async::prelude::Queryable;
 use mysql_async::{Conn, Opts, OptsBuilder, SslOpts};
-use schemir_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
+use schemir_core::{CheckConstraint, Column, ForeignKey, Identity, Index, Routine, RoutineKind, Schema, Table, Trigger};
 
 use super::{ConnectionConfig, DbResult};
 
@@ -220,6 +220,15 @@ async fn read_tables(conn: &mut Conn) -> DbResult<Vec<Table>> {
             );
         }
         if let Some(t) = map.get_mut(&qn) {
+            // `EXTRA` trae «auto_increment» en las columnas que el motor rellena
+            // solo. Ni el inicio ni el incremento se pueden leer por columna: el
+            // primero es una opción de la tabla y el segundo una variable de
+            // sesión, así que quedan en 1 (lo correcto para una tabla que nace
+            // vacía en el destino).
+            let identity = extra
+                .to_ascii_lowercase()
+                .contains("auto_increment")
+                .then(Identity::simple);
             t.columns.push(Column {
                 name: col,
                 data_type: col_type.clone(),
@@ -227,6 +236,7 @@ async fn read_tables(conn: &mut Conn) -> DbResult<Vec<Table>> {
                 default_value: default_literal(&default, &extra),
                 ordinal: ordinal as i32,
                 is_primary_key: key.eq_ignore_ascii_case("PRI"),
+                identity,
             });
         }
     }

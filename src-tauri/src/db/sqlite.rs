@@ -4,7 +4,7 @@
 //! así que esas listas quedan vacías. Sí tiene tablas y vistas.
 //! Abrimos el archivo en modo SOLO LECTURA: nunca creamos ni modificamos nada.
 
-use schemir_core::{Column, ColumnKind, DataColumn, DataTable, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
+use schemir_core::{Column, ColumnKind, DataColumn, DataTable, ForeignKey, Identity, Index, Routine, RoutineKind, Schema, Table, Trigger};
 use rusqlite::{Connection, OpenFlags};
 
 use super::DbResult;
@@ -99,6 +99,19 @@ fn read_tables(conn: &Connection) -> DbResult<Vec<Table>> {
 }
 
 fn read_columns(conn: &Connection, table: &str) -> DbResult<Vec<Column>> {
+    // `table_info` no dice nada de AUTOINCREMENT: hay que mirar el DDL que
+    // guarda `sqlite_master`. Y como SQLite solo lo admite en la columna
+    // «INTEGER PRIMARY KEY», basta con saber si la tabla lo lleva: la columna
+    // que lo tiene es, necesariamente, la clave primaria.
+    let ddl: String = conn
+        .query_row(
+            "SELECT COALESCE(sql, '') FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |r| r.get(0),
+        )
+        .unwrap_or_default();
+    let autoincrement = ddl.to_ascii_uppercase().contains("AUTOINCREMENT");
+
     // PRAGMA no admite parámetros; el nombre viene de sqlite_master, aun así
     // escapamos las comillas dobles por prolijidad.
     let sql = format!("PRAGMA table_info(\"{}\")", table.replace('"', "\"\""));
@@ -123,6 +136,7 @@ fn read_columns(conn: &Connection, table: &str) -> DbResult<Vec<Column>> {
                 default_value: default,
                 ordinal: cid,
                 is_primary_key: pk > 0,
+                identity: (autoincrement && pk > 0).then(Identity::simple),
             })
         })?
         .collect::<Result<_, _>>()?;

@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use schemir_core::{CheckConstraint, Column, ForeignKey, Index, Routine, RoutineKind, Schema, Table, Trigger};
+use schemir_core::{CheckConstraint, Column, ForeignKey, Identity, Index, Routine, RoutineKind, Schema, Table, Trigger};
 use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
@@ -158,11 +158,16 @@ SELECT
     c.is_nullable AS is_nullable,
     c.column_id   AS column_id,
     OBJECT_DEFINITION(c.default_object_id) AS default_definition,
-    CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END AS is_pk
+    CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END AS is_pk,
+    c.is_identity AS is_identity,
+    CAST(idc.seed_value      AS bigint) AS identity_seed,
+    CAST(idc.increment_value AS bigint) AS identity_increment
 FROM sys.tables t
 JOIN sys.schemas s ON t.schema_id = s.schema_id
 JOIN sys.columns c ON c.object_id = t.object_id
 JOIN sys.types  ty ON c.user_type_id = ty.user_type_id
+LEFT JOIN sys.identity_columns idc
+       ON idc.object_id = c.object_id AND idc.column_id = c.column_id
 LEFT JOIN (
     SELECT ic.object_id, ic.column_id
     FROM sys.indexes i
@@ -190,6 +195,17 @@ async fn read_tables(client: &mut SqlClient) -> DbResult<Vec<Table>> {
         let column_id: i32 = row.get("column_id").unwrap_or(0);
         let default_def: Option<&str> = row.get("default_definition");
         let is_pk: i32 = row.get("is_pk").unwrap_or(0);
+        // El `IDENTITY` de la columna. Aquí SÍ tenemos el inicio y el
+        // incremento: SQL Server es el único de los cuatro motores que los
+        // expone columna por columna, en `sys.identity_columns`.
+        let is_identity: bool = row.get("is_identity").unwrap_or(false);
+        let identity = if is_identity {
+            let seed: i64 = row.get("identity_seed").unwrap_or(1);
+            let increment: i64 = row.get("identity_increment").unwrap_or(1);
+            Some(Identity { seed, increment, always: false })
+        } else {
+            None
+        };
 
         let key = format!("{schema}.{table}");
         map.entry(key.clone()).or_insert_with(|| {
@@ -205,6 +221,7 @@ async fn read_tables(client: &mut SqlClient) -> DbResult<Vec<Table>> {
                 default_value: default_def.map(|d| d.trim().to_string()),
                 ordinal: column_id,
                 is_primary_key: is_pk != 0,
+                identity,
             });
         }
     }

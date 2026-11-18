@@ -71,6 +71,11 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   affected table has rows. Each engine in its own way — `RAISERROR` in SQL Server,
   `RAISE EXCEPTION` in PostgreSQL, a violated CHECK in SQLite and a violated NOT NULL in
   MySQL / MariaDB.
+- 🔢 **Auto-generated columns** are read and re-emitted per engine: SQL Server's
+  `IDENTITY` (seed and increment included), PostgreSQL identity columns *and* `serial`,
+  MySQL / MariaDB's `AUTO_INCREMENT`, SQLite's `AUTOINCREMENT`. Where the target dialect
+  cannot express what the source has, the script says so in a comment instead of dropping it
+  in silence.
 - ⚡ **Apply to target** from the app, with confirmation and — where the engine allows it —
   inside a **transaction** (only the checked objects). See the table below.
 
@@ -93,12 +98,12 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
 
 ## 🔌 Supported engines
 
-| Engine | Driver | Schema | Data | Apply in a transaction | Data-loss guard |
-|---|---|:--:|:--:|:--:|:--:|
-| **SQL Server** | `tiberius` | ✅ | — | ✅ | ✅ |
-| **PostgreSQL** | `tokio-postgres` (TLS) | ✅ | — | ✅ | ✅ |
-| **MySQL / MariaDB** | `mysql_async` (TLS when offered) | ✅ | — | — | ✅ |
-| **SQLite** | `rusqlite` (bundled) | ✅ | ✅ | ✅ | ✅ |
+| Engine | Driver | Schema | Data | Apply in a transaction | Data-loss guard | Auto-generated columns |
+|---|---|:--:|:--:|:--:|:--:|:--:|
+| **SQL Server** | `tiberius` | ✅ | — | ✅ | ✅ | ✅ `IDENTITY(seed, step)` |
+| **PostgreSQL** | `tokio-postgres` (TLS) | ✅ | — | ✅ | ✅ | ✅ identity + `serial` (PG 10+) |
+| **MySQL / MariaDB** | `mysql_async` (TLS when offered) | ✅ | — | — | ✅ | ✅ `AUTO_INCREMENT` |
+| **SQLite** | `rusqlite` (bundled) | ✅ | ✅ | ✅ | ✅ | ⚠️ `AUTOINCREMENT` on the PK only |
 
 > **MySQL and MariaDB** speak the same protocol and expose the same `information_schema`,
 > so a single reader covers both.
@@ -108,6 +113,14 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
 > stops the script *before* the destructive statements run — but a failure halfway through
 > leaves the earlier statements applied. On the other three engines the whole script is
 > applied inside a transaction, so a failure leaves the database untouched.
+>
+> **Auto-generated columns:** only SQL Server reports the seed and the step column by
+> column, so on the other three they are read as `(1, 1)` — which is what an empty target
+> table wants anyway. The *current* value of the sequence is never carried over (SSDT does
+> not either): the target starts from the declared seed. SQLite is the odd one out because
+> `AUTOINCREMENT` only exists as `INTEGER PRIMARY KEY AUTOINCREMENT`; anything else (a
+> composite key, a non-integer column, adding the column with `ALTER`) gets a warning
+> comment rather than a silent loss.
 >
 > **Data** comparison ships today for **SQLite** (covered by tests); the logic is
 > engine-agnostic, so extending it to the other engines is just adding their row reader.
@@ -222,11 +235,20 @@ cargo test --manifest-path src-tauri/Cargo.toml # app + integration (SQLite)
 - The **data-loss guard** has been checked against a real database on **SQLite** and
   **SQL Server** (the script does abort and nothing is applied); on PostgreSQL and
   MySQL / MariaDB it is only covered by unit tests on the generated SQL.
-- **Auto-generated columns are not read on any engine:** SQL Server's `IDENTITY`,
-  MySQL's `AUTO_INCREMENT` and SQLite's `AUTOINCREMENT` are lost when a table is recreated
-  in the target, silently. PostgreSQL is the exception only by accident: a `serial` column's
-  `DEFAULT nextval(...)` *is* read, but the sequence it points at is not created, so the
-  script fails instead. The common model has nowhere to store this yet.
+- **Auto-generated columns** are read and emitted on all four engines, and verified against
+  a real database on **SQL Server** (the DDL *and* the catalog query, including a
+  `IDENTITY(100,5)` column and adding an `IDENTITY` column to a populated table) and on
+  **SQLite**; on PostgreSQL and MySQL / MariaDB only by unit tests on the generated SQL.
+  What is still out of reach, and said in a comment in the script rather than lost quietly:
+  SQL Server cannot add or remove `IDENTITY` with `ALTER` (the table has to be rebuilt);
+  SQLite can only express `AUTOINCREMENT` on an `integer` column that is the whole primary
+  key, and no `ALTER` of its own can add one; MySQL / MariaDB require the `AUTO_INCREMENT`
+  column to be a key, and cannot set a seed or a step per column. **Reading identity columns
+  on PostgreSQL needs version 10 or later** (`pg_attribute.attidentity`); a `serial` column
+  is translated into a real identity column, so the target no longer needs the separate
+  sequence that used to make the script fail.
+- **Computed / generated columns are a different thing and are still not read:**
+  `GENERATED ALWAYS AS (<expression>)` is read as a plain column of its result type.
 - **User-defined types are not compared, and there is no dependency ordering.** A procedure
   or a column that uses a type of your own is emitted verbatim, so the script fails in the
   target because the type was never created. Units are emitted by fixed category (tables →
@@ -238,7 +260,7 @@ cargo test --manifest-path src-tauri/Cargo.toml # app + integration (SQLite)
   Same-engine comparison — the real use today — is unaffected.
 
 On the radar: row data for SQL Server / PostgreSQL / MySQL, a type map between engines,
-dependency ordering, auto-generated columns, more objects (sequences, user-defined types),
+dependency ordering, computed columns, more objects (sequences, user-defined types),
 and a signed macOS build.
 
 ---
@@ -252,7 +274,10 @@ objetos (tablas, columnas, vistas, procedimientos, funciones, claves primarias/f
 SQLite**, con opciones de comparación estilo SSDT. Genera un **script de sincronización**
 consciente del dialecto con **aplicación selectiva** y con **bloqueo ante posible pérdida de
 datos** (el script se detiene si la tabla que va a perder una columna, un tipo o sus filas no
-está vacía), compara **datos de filas** (SQLite) produciendo
+está vacía). Lee y vuelve a emitir las **columnas que se autogeneran** en los cuatro motores
+(`IDENTITY`, `AUTO_INCREMENT`, `AUTOINCREMENT`, identidad y `serial`), y cuando el motor
+destino no puede expresarlas lo dice en un comentario en vez de perderlas en silencio.
+Compara **datos de filas** (SQLite) produciendo
 `INSERT`/`UPDATE`/`DELETE`, dibuja un **diagrama ER interactivo** (exportable a PNG/SVG) e
 incluye un **diseñador ER** que exporta a **SQL** y **Prisma**. La interfaz es bilingüe
 (ES/EN, autodetecta el idioma del sistema) con tema claro/oscuro/sistema.

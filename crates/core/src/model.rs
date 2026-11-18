@@ -73,6 +73,39 @@ pub struct Column {
     /// ¿Forma parte de la clave primaria? (se usa para marcarla en el diagrama).
     #[serde(default)]
     pub is_primary_key: bool,
+    /// Cómo se autogenera el valor de la columna, si el motor lo hace solo.
+    /// `None` = la columna no se autogenera.
+    #[serde(default)]
+    pub identity: Option<Identity>,
+}
+
+/// Cómo genera el motor, por sí solo, el valor de una columna: el `IDENTITY` de
+/// SQL Server, el `AUTO_INCREMENT` de MySQL / MariaDB, el `AUTOINCREMENT` de
+/// SQLite y las columnas de identidad (o `serial`) de PostgreSQL.
+///
+/// Solo SQL Server expone el inicio y el incremento columna por columna. En los
+/// otros tres se leen como `1` porque el catálogo no los da ahí: en MySQL el
+/// inicio es una opción de la tabla y el incremento una variable de sesión, y en
+/// PostgreSQL viven en la secuencia, que este modelo todavía no lee. Para una
+/// tabla que nace vacía en el destino, empezar en 1 es justo lo que se quiere.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Identity {
+    /// Primer valor que entrega la secuencia.
+    pub seed: i64,
+    /// Cuánto avanza en cada fila.
+    pub increment: i64,
+    /// `true` cuando el motor PROHÍBE escribir el valor a mano
+    /// (`GENERATED ALWAYS AS IDENTITY` de PostgreSQL). En SQL Server, MySQL y
+    /// SQLite siempre es `false`: los tres permiten insertarlo.
+    pub always: bool,
+}
+
+impl Identity {
+    /// La forma habitual: empieza en 1, avanza de 1 en 1 y se puede escribir.
+    /// Es lo único que saben decir MySQL, SQLite y PostgreSQL por columna.
+    pub fn simple() -> Self {
+        Self { seed: 1, increment: 1, always: false }
+    }
 }
 
 /// Una relación de clave foránea entre dos tablas (para el diagrama ER).

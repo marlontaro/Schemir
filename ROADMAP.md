@@ -28,6 +28,12 @@ _Última actualización: noviembre 2026._
   (comprobado contra una base real en SQLite y en SQL Server). En MySQL / MariaDB va
   sentencia a sentencia y SIN transacción: el motor hace *commit* implícito en cada DDL, así
   que allí el guardia impide el daño pero no lo deshace.
+- **Columnas que se autogeneran**, en los cuatro motores: el `IDENTITY` de SQL Server (con
+  su inicio y su incremento), las columnas de identidad y las `serial` de PostgreSQL, el
+  `AUTO_INCREMENT` de MySQL / MariaDB y el `AUTOINCREMENT` de SQLite. Se leen del catálogo,
+  se comparan y se vuelven a emitir en el dialecto del destino; cuando el motor destino no
+  puede expresar lo que trae el origen, el script lo dice en un comentario `-- (!)` en vez de
+  perderlo en silencio, que es lo que pasaba antes.
 - **Comparar datos de filas** (SQLite): por tabla, empareja por clave primaria y reporta
   filas solo en A / solo en B / distintas, con su DML (`INSERT` / `UPDATE` / `DELETE`).
 - **Diagrama ER** con renderizador propio (dagre): vista por esquema y **diagrama de
@@ -42,7 +48,7 @@ _Última actualización: noviembre 2026._
 - **Interfaz por fases** (Conexión → Comparación), **bilingüe ES/EN** y con
   **tema claro / oscuro / sistema**.
 - **Instalador para macOS** (`.dmg`) generado con `tauri build`.
-- **Pruebas:** 58 unitarias en `schemir-core` + 9 del lector MySQL (entrecomillado, valores
+- **Pruebas:** 76 unitarias en `schemir-core` + 9 del lector MySQL (entrecomillado, valores
   por defecto, troceo del script) + 2 de integración del lector SQLite.
 
 ## ⚠️ Pendiente de verificar
@@ -54,24 +60,29 @@ _Última actualización: noviembre 2026._
 - **El guardia de pérdida de datos** se comprobó contra una base real en SQLite y en SQL
   Server: el script aborta de verdad y no se aplica nada. En PostgreSQL y en MySQL / MariaDB
   está cubierto solo por tests del SQL generado, no por una ejecución real.
+- **Las columnas que se autogeneran**, lo mismo: comprobadas contra una base real en SQL
+  Server (el DDL y también la consulta al catálogo — una columna `IDENTITY(100,5)` reporta
+  inicio 100 e incremento 5, y agregar una columna `IDENTITY` a una tabla con filas funciona)
+  y en SQLite (el `AUTOINCREMENT` numera de verdad, y el lector lo detecta en el DDL de
+  `sqlite_master` sin dar falsos positivos). En PostgreSQL y MySQL / MariaDB, solo tests del
+  SQL generado.
+- **Leer la identidad en PostgreSQL exige la versión 10 o posterior**, porque la consulta usa
+  `pg_attribute.attidentity`. Contra un servidor 9.x la lectura de tablas fallaría entera;
+  no hay por ahora detección de versión.
 - En MySQL / MariaDB, tres puntos concretos conviene mirarlos con un servidor delante:
   el `CREATE` de procedimientos y funciones se rearma a partir de `ROUTINES` + `PARAMETERS`
   (no de `SHOW CREATE`); los índices por expresión se leen con una marca en lugar de la
   expresión, porque `information_schema.STATISTICS` deja la columna en NULL; y el
-  `AUTO_INCREMENT` no se lee, igual que no se lee el `IDENTITY` de SQL Server (el modelo
-  común todavía no tiene dónde guardarlo).
+  `AUTO_INCREMENT` ya se lee de `EXTRA`, pero sin servidor delante no se ha visto correr el
+  `ALTER … MODIFY COLUMN … AUTO_INCREMENT` que genera Schemir.
 
 ## 🔜 Próximo
 
-Las tres primeras son el mismo hueco visto por tres lados: el modelo común guarda de cada
-columna solo nombre, tipo, nulabilidad, valor por defecto, posición y si es parte de la clave
-primaria, y el generador emite por categorías fijas en vez de ordenar por dependencias.
+Las dos primeras son el mismo hueco visto por dos lados: el modelo común guarda de cada
+columna nombre, tipo, nulabilidad, valor por defecto, posición, si es parte de la clave
+primaria y cómo se autogenera — pero nada más —, y el generador emite por categorías fijas
+en vez de ordenar por dependencias.
 
-- **Columnas autogeneradas en todos los motores.** Hoy no se leen: el `IDENTITY` de SQL
-  Server, el `AUTO_INCREMENT` de MySQL / MariaDB y el `AUTOINCREMENT` de SQLite se pierden
-  al recrear la tabla en el destino, y sin avisar. PostgreSQL es la excepción por accidente:
-  el `DEFAULT nextval(...)` de una columna `serial` sí se lee, pero la secuencia a la que
-  apunta no se crea, así que el script falla en lugar de perder el dato en silencio.
 - **Ordenación por dependencias.** Las unidades salen por categoría (tablas → columnas →
   claves → índices → restricciones → vistas → rutinas → disparadores), no ordenadas por
   quién necesita a quién. Una vista montada sobre otra vista puede salir al revés, y sin
@@ -81,6 +92,9 @@ primaria, y el generador emite por categorías fijas en vez de ordenar por depen
   comparar motores *distintos* produce un script que se lee bien y no corre (`nvarchar(50)`
   o `uniqueidentifier` contra PostgreSQL). Comparar el mismo motor contra sí mismo, que es
   el uso real de hoy, no se ve afectado.
+- **Columnas calculadas**, que son otra cosa distinta de las que se autogeneran:
+  `GENERATED ALWAYS AS (<expresión>)` (y las columnas calculadas de SQL Server) se leen hoy
+  como una columna normal del tipo que devuelve la expresión, así que la expresión se pierde.
 - **Más objetos:** secuencias, tipos definidos por usuario, permisos.
 
 ## 🚀 Funcionalidad grande
