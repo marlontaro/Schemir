@@ -29,8 +29,14 @@
         </div>
         <div class="topbar-right">
           <div class="mode-toggle">
-            <button type="button" id="mode-compare" class="active" data-i18n="mode.compare">Comparar</button>
-            <button type="button" id="mode-design" data-i18n="mode.design">Diseñar</button>
+            <button type="button" id="mode-compare" class="active">
+              <svg class="mode-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/><path d="M10 9h4M10 15h4"/></svg>
+              <span data-i18n="mode.compare">Comparar</span>
+            </button>
+            <button type="button" id="mode-design">
+              <svg class="mode-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="8" height="7" rx="1.5"/><rect x="13" y="14" width="8" height="7" rx="1.5"/><path d="M7 10v4a2 2 0 0 0 2 2h4"/></svg>
+              <span data-i18n="mode.design">Diseñar</span>
+            </button>
           </div>
           <div class="theme-toggle">
             <button type="button" data-theme-set="light" data-i18n-title="theme.light" title="Claro">
@@ -314,6 +320,7 @@
         <section id="designer" class="phase" hidden>
           <div class="designer-bar">
             <button type="button" id="add-table" class="btn primary" data-i18n="dz.addTable">+ Tabla</button>
+            <button type="button" id="add-schema" class="btn ghost dz-schema-only" data-i18n="dz.addSchema">+ Esquema</button>
             <span class="lbl-inline" data-i18n="dz.dialect">Dialecto</span>
             <select id="design-dialect" class="recent-select">
               <option value="sqlserver">SQL Server</option>
@@ -321,9 +328,14 @@
               <option value="mysql">MySQL / MariaDB</option>
               <option value="sqlite">SQLite</option>
             </select>
+            <span class="lbl-inline" data-i18n="dz.version">Versión objetivo</span>
+            <select id="design-version" class="recent-select"></select>
             <button type="button" id="export-sql" class="btn ghost" data-i18n="dz.exportSql">Exportar SQL</button>
             <button type="button" id="export-prisma" class="btn ghost" data-i18n="dz.exportPrisma">Exportar Prisma</button>
+            <button type="button" id="open-model" class="btn ghost" data-i18n="dz.openModel">Abrir modelo</button>
+            <button type="button" id="save-model" class="btn ghost" data-i18n="dz.saveModel">Guardar modelo</button>
             <span class="spacer"></span>
+            <span class="script-info" id="dz-req"></span>
             <button type="button" id="clear-design" class="btn ghost" data-i18n="dz.clear">Limpiar</button>
           </div>
 
@@ -333,14 +345,11 @@
           <div class="dz-relations">
             <div class="dz-rel-head" data-i18n="dz.relations">Relaciones (claves foráneas)</div>
             <div class="dz-rel-form">
-              <select id="rel-from-table" aria-label="tabla origen"></select>
-              <select id="rel-from-col" aria-label="columna origen"></select>
-              <span class="dz-arrow">→</span>
-              <select id="rel-to-table" aria-label="tabla destino"></select>
-              <select id="rel-to-col" aria-label="columna destino"></select>
               <button type="button" id="rel-add" class="btn ghost" data-i18n="dz.addRel">Añadir relación</button>
+              <span class="hint" data-i18n="dz.relHint">Arrastra desde el punto de una columna hasta otra tabla.</span>
             </div>
             <ul id="rel-list" class="dz-rel-list"></ul>
+            <p id="rel-empty" class="empty" data-i18n="dz.noRels">Todavía no hay ninguna relación.</p>
           </div>
 
           <div id="design-output" hidden>

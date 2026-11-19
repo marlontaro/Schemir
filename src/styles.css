@@ -130,6 +130,8 @@ body {
 .lang-toggle button:hover, .theme-toggle button:hover, .mode-toggle button:hover { color: var(--text); }
 .lang-toggle button.active, .theme-toggle button.active, .mode-toggle button.active { background: var(--surface-3); color: var(--text); }
 .theme-toggle button { padding: 5px 8px; }
+.mode-toggle button { gap: 6px; }
+.mode-toggle svg { width: 14px; height: 14px; flex: 0 0 auto; }
 .theme-toggle svg { width: 15px; height: 15px; }
 .chip-ver {
   font-size: 11px; color: var(--muted); font-weight: 600;
@@ -140,6 +142,9 @@ body {
 
 /* ---------- Stepper / fases ---------- */
 .stepper { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 26px; }
+/* `display: flex` gana a `[hidden]`, así que ocultarlo desde JS no bastaba: los
+   pasos 1 y 2 seguían saliendo en el diseñador, donde no significan nada. */
+.stepper[hidden] { display: none; }
 .step { display: inline-flex; align-items: center; gap: 9px; background: transparent; border: 0; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 10px; border-radius: 9px; transition: color 0.15s ease; }
 .step:hover:not(:disabled) { color: var(--text); }
 .step:disabled { cursor: default; opacity: 0.5; }
@@ -458,12 +463,12 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .dz-edges { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
 .dz-edges line { stroke: var(--accent); stroke-width: 1.6; opacity: 0.8; }
 .dz-table {
-  position: absolute; z-index: 1; width: 230px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: 10px; box-shadow: var(--shadow-sm); overflow: hidden;
+  position: absolute; z-index: 1; width: 300px; min-width: 180px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-sm); overflow: hidden;
 }
 .dz-head { display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 10px; background: var(--surface-2); cursor: grab; border-bottom: 1px solid var(--border); }
 .dz-head.dragging { cursor: grabbing; }
-.dz-name { flex: 1; width: auto; border: 1px solid transparent; background: transparent; color: var(--text); font-weight: 700; font-size: 13.5px; padding: 3px 6px; border-radius: 6px; }
+.dz-name { flex: 1; min-width: 0; width: auto; border: 1px solid transparent; background: transparent; color: var(--text); font-weight: 700; font-size: 13.5px; padding: 3px 6px; border-radius: 6px; }
 .dz-name:hover { border-color: var(--border); }
 .dz-name:focus { border-color: var(--accent); background: var(--bg); }
 .dz-icon-btn { border: 0; background: transparent; color: var(--muted); cursor: pointer; width: 22px; height: 22px; border-radius: 6px; font-size: 14px; line-height: 1; display: grid; place-items: center; }
@@ -471,9 +476,13 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .dz-cols { list-style: none; margin: 0; padding: 4px; display: flex; flex-direction: column; gap: 2px; }
 .dz-col { display: flex; align-items: center; gap: 4px; padding: 2px 2px; }
 .dz-col input[type="text"] { width: auto; padding: 4px 6px; font-size: 12px; border-radius: 6px; }
-.dz-col .dz-c-name { flex: 1.3; min-width: 0; }
+.dz-col .dz-c-name { flex: 1.3; min-width: 52px; }
 .dz-col .dz-c-type { flex: 1; min-width: 0; color: var(--muted); }
-.dz-col label.dz-flag { display: inline-flex; align-items: center; gap: 2px; font-size: 10px; font-weight: 700; color: var(--muted); cursor: pointer; user-select: none; }
+/* `flex-direction: row` es obligatorio: la regla global `label { display: flex;
+   flex-direction: column }` de más arriba alcanza también a estas etiquetas, y
+   sin esto la casilla y su texto se apilan uno encima de otro (se leía «MAPK»
+   donde debía poner MAX y PK). */
+.dz-col label.dz-flag { display: inline-flex; flex-direction: row; flex: 0 0 auto; white-space: nowrap; align-items: center; gap: 2px; font-size: 10px; font-weight: 700; color: var(--muted); cursor: pointer; user-select: none; }
 .dz-col label.dz-flag input { width: 13px; height: 13px; accent-color: var(--accent); cursor: pointer; }
 .dz-add-col { width: calc(100% - 8px); margin: 2px 4px 6px; border: 1px dashed var(--border); background: transparent; color: var(--muted); border-radius: 7px; padding: 5px; font-size: 12px; cursor: pointer; }
 .dz-add-col:hover { border-color: var(--accent); color: var(--text); }
@@ -487,3 +496,114 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .dz-rel-list .mono { font-family: var(--mono, ui-monospace, Menlo, monospace); color: var(--text); }
 .dz-rel-list .spacer { flex: 1; }
 #design-output { margin-top: 18px; }
+
+/* ── Diseñador: el tipo se elige, el esquema se ve, la relación se arrastra ── */
+.dz-type { display: flex; align-items: center; gap: 3px; flex: 1.7; min-width: 0; }
+.dz-c-sel {
+  flex: 1; min-width: 0; font-size: 11.5px; padding: 3px 4px; border-radius: 6px;
+  background: var(--bg); border: 1px solid var(--border); color: var(--muted); cursor: pointer;
+}
+.dz-c-sel:focus { border-color: var(--accent); outline: none; }
+.dz-col input.dz-arg { width: 40px; flex: 0 0 auto; text-align: center; }
+.dz-col input.dz-other { width: 78px; flex: 0 0 auto; }
+.dz-comma { color: var(--muted); font-size: 12px; }
+.dz-flag.dz-max { font-size: 9px; }
+/* El `hidden` tiene que ganarle a `.dz-col label.dz-flag { display: inline-flex }`
+   de más arriba, que si no deja la casilla MAX a la vista cuando no toca. */
+.dz-arg[hidden], .dz-comma[hidden], .dz-other[hidden],
+.dz-col label.dz-flag[hidden], .dz-table select[hidden] { display: none !important; }
+
+/* Avisos: el tipo pide una versión más nueva, o la cifra se pasa del límite. */
+.dz-warn { border-color: #d97706 !important; color: #d97706 !important; }
+.dz-warn-text { color: #d97706; }
+
+/* La agarradera de la que se tira la relación, al estilo de ERwin. */
+.dz-grip {
+  width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--accent);
+  flex: 0 0 auto; cursor: crosshair; opacity: 0.4;
+}
+.dz-grip:hover { opacity: 1; background: var(--accent); }
+.designer-canvas.dz-linking, .designer-canvas.dz-linking .dz-table, .designer-canvas.dz-linking .dz-col { cursor: crosshair; }
+.dz-edges line.dz-rubber { stroke-dasharray: 5 4; stroke-width: 2; opacity: 1; }
+.dz-edges marker path { fill: var(--accent); }
+
+.dz-schema-sel {
+  max-width: 96px; font-size: 11px; padding: 2px 4px; border-radius: 6px;
+  background: var(--bg); border: 1px solid var(--border); color: var(--muted); cursor: pointer;
+}
+.dz-rel-txt { cursor: pointer; }
+.dz-rel-txt:hover { color: var(--accent); }
+.dz-rel-form .hint { margin: 0; font-size: 12px; color: var(--muted); }
+
+/* Diálogo propio: el nativo de Tauri solo sabe preguntar sí/no, y aquí hay que
+   pedir un nombre y unos desplegables. */
+.dz-modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; z-index: 60; }
+.dz-modal {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  min-width: 360px; max-width: 480px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+.dz-modal-head { font-weight: 600; font-size: 14px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.dz-modal-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+.dz-modal-body label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.dz-modal-body input, .dz-modal-body select {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  border-radius: var(--radius-sm); padding: 8px 10px; font-size: 13px; outline: none; width: 100%;
+}
+.dz-modal-body input:focus, .dz-modal-body select:focus { border-color: var(--accent); }
+.dz-modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--border); }
+
+/* La agarradera de mover y el tirador del ancho. Las dos hacen falta porque el
+   encabezado se llenó de controles y la tarjeta trae un ancho fijo. */
+.dz-move {
+  flex: 0 0 auto; cursor: grab; color: var(--muted); font-size: 13px; line-height: 1;
+  padding: 2px 1px; user-select: none; letter-spacing: -1px;
+}
+.dz-move:hover { color: var(--accent); }
+.dz-head.dragging .dz-move { cursor: grabbing; }
+.dz-resize {
+  position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: ew-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--border) 50%, var(--border) 70%, transparent 70%);
+}
+.dz-resize:hover { background: linear-gradient(135deg, transparent 50%, var(--accent) 50%, var(--accent) 70%, transparent 70%); }
+.dz-table.resizing { user-select: none; }
+
+/* El desplegable del valor que pone el motor (contador / uuid). */
+.dz-auto { display: flex; align-items: center; flex: 0 0 auto; }
+.dz-auto-sel {
+  font-size: 10.5px; padding: 3px 2px; border-radius: 6px; max-width: 150px;
+  background: var(--bg); border: 1px solid var(--border); color: var(--muted); cursor: pointer;
+}
+.dz-auto-sel:focus { border-color: var(--accent); outline: none; }
+
+/* ── La entidad del lienzo: se lee, no se escribe (se edita con doble clic) ── */
+.dz-name-ro {
+  flex: 1; min-width: 0; font-weight: 700; font-size: 13.5px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dz-schema-ro { font-size: 10.5px; color: var(--muted-2); flex: 0 0 auto; }
+.dz-ro { display: flex; align-items: center; gap: 6px; padding: 3px 6px; font-size: 12px; }
+.dz-ro-name { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dz-ro-key { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; color: var(--accent); }
+.dz-ro-type {
+  flex: 0 1 auto; min-width: 0; font-size: 11px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dz-ro-null { flex: 0 0 auto; font-size: 9px; color: var(--muted-2); }
+.dz-ro-empty { padding: 12px; text-align: center; font-size: 12px; color: var(--muted-2); }
+/* La línea que separa la clave primaria del resto, como en ERwin. */
+.dz-pk-box { border-bottom: 1px solid var(--border); }
+/* Esquinas redondeadas: la entidad depende de otra para identificarse. */
+.dz-table.dependiente { border-radius: 20px; }
+
+/* Pata de gallo, barra, y discontinua cuando la relación no identifica. */
+.dz-edges marker path { fill: none; stroke: var(--accent); stroke-width: 1.4; }
+.dz-edges line.dz-no-id { stroke-dasharray: 7 5; }
+
+/* El editor de la tabla, que es donde ahora se escribe. */
+.dz-modal.dz-editor { min-width: 680px; max-width: 920px; }
+.dz-ed-head { display: flex; gap: 12px; }
+.dz-ed-head label { flex: 1; }
+.dz-ed-cols { gap: 5px; margin-top: 4px; max-height: 46vh; overflow-y: auto; }
+.dz-ed-cols .dz-col { background: var(--surface-2); border-radius: 7px; padding: 4px 6px; }
+.dz-ed-cols .dz-icon-btn:disabled { opacity: 0.3; cursor: default; }
+.dz-editor .dz-add-col { width: 100%; margin: 10px 0 0; }
