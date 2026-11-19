@@ -96,8 +96,10 @@
                   <label class="w-port"><span data-i18n="field.port">Puerto</span><input name="port" type="number" value="1433" /></label>
                   <label><span data-i18n="field.database">Base de datos</span><input name="database" data-i18n-ph="ph.database" placeholder="ventas" /></label>
                 </div>
+                <label class="check winauth-row"><input type="checkbox" name="windows_auth" /><span data-i18n="field.winAuth">Autenticación de Windows</span></label>
                 <label><span data-i18n="field.user">Usuario</span><input name="user" placeholder="sa" /></label>
                 <label><span data-i18n="field.password">Contraseña</span><input name="password" type="password" /></label>
+                <p class="hint hint-sqlserver" data-i18n="hint.sqlserver">Con el puerto por defecto, Schemir se conecta como SSMS (memoria compartida o canalizaciones si el servidor es local). Escribe otro puerto solo si quieres forzar TCP.</p>
                 <p class="hint hint-mysql" hidden data-i18n="hint.mysql">En MySQL / MariaDB el esquema ES la base de datos: se compara la que escribas aquí.</p>
               </div>
 
@@ -145,8 +147,10 @@
                   <label class="w-port"><span data-i18n="field.port">Puerto</span><input name="port" type="number" value="1433" /></label>
                   <label><span data-i18n="field.database">Base de datos</span><input name="database" data-i18n-ph="ph.database" placeholder="ventas" /></label>
                 </div>
+                <label class="check winauth-row"><input type="checkbox" name="windows_auth" /><span data-i18n="field.winAuth">Autenticación de Windows</span></label>
                 <label><span data-i18n="field.user">Usuario</span><input name="user" placeholder="sa" /></label>
                 <label><span data-i18n="field.password">Contraseña</span><input name="password" type="password" /></label>
+                <p class="hint hint-sqlserver" data-i18n="hint.sqlserver">Con el puerto por defecto, Schemir se conecta como SSMS (memoria compartida o canalizaciones si el servidor es local). Escribe otro puerto solo si quieres forzar TCP.</p>
                 <p class="hint hint-mysql" hidden data-i18n="hint.mysql">En MySQL / MariaDB el esquema ES la base de datos: se compara la que escribas aquí.</p>
               </div>
 

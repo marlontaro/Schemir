@@ -41,6 +41,8 @@ const I18N = {
     "field.database": "Base de datos",
     "field.user": "Usuario",
     "field.password": "Contraseña",
+    "field.winAuth": "Autenticación de Windows",
+    "hint.sqlserver": "Con el puerto por defecto, Schemir se conecta como SSMS (memoria compartida o canalizaciones si el servidor es local). Escribe otro puerto solo si quieres forzar TCP.",
     "field.sqliteFile": "Archivo SQLite",
     "ph.database": "ventas",
     "ph.sqlitePath": "/ruta/a/base.db",
@@ -91,8 +93,8 @@ const I18N = {
     "data.table": "Tabla",
     "btn.compareData": "Comparar datos",
     "data.comparing": "Comparando…",
-    "data.leftRows": "Filas solo en A",
-    "data.rightRows": "Filas solo en B",
+    "data.leftRows": "Filas solo en el origen",
+    "data.rightRows": "Filas solo en el destino",
     "data.diffRows": "Filas distintas",
     "data.equalRows": "Filas iguales",
     "data.opInsert": "Nueva",
@@ -109,13 +111,13 @@ const I18N = {
     "script.info": "SQL para dejar <b class=\"side-b-text\">B</b> igual que <b class=\"side-a-text\">A</b> · revísalo antes de ejecutarlo.",
     "script.none": "-- (sin cambios)",
     "btn.apply": "Aplicar a B",
-    "apply.confirm": "¿Aplicar el script a la base B? Esto MODIFICA el destino (crea, altera y elimina objetos). Haz un respaldo antes.",
+    "apply.confirm": "¿Aplicar el script a la base de datos de destino? Esto la MODIFICA (crea, altera y elimina objetos). Haz un respaldo antes.",
     "apply.applying": "Aplicando…",
     "apply.done": "✓ Aplicado a B. Vuelve a comparar para confirmar.",
     "diagram.legend": "Diagrama entidad-relación · 🔑 PK · 🔗 FK",
     "diagram.sideDiff": "Diferencias",
-    "diagram.sideA": "Origen A",
-    "diagram.sideB": "Destino B",
+    "diagram.sideA": "Origen",
+    "diagram.sideB": "Destino",
     "diagram.empty": "No hay tablas para diagramar en este lado.",
     "diagram.noEngine": "No se pudo cargar el motor de diagrama.",
     "zoom.in": "Acercar",
@@ -142,10 +144,10 @@ const I18N = {
     "diag.type": "Tipo de dato",
     "diag.key": "Clave",
     "detail.field": "Campo",
-    "detail.a": "A · origen",
-    "detail.b": "B · destino",
-    "status.only_in_left": "Solo en A",
-    "status.only_in_right": "Solo en B",
+    "detail.a": "Origen",
+    "detail.b": "Destino",
+    "status.only_in_left": "Solo en el origen",
+    "status.only_in_right": "Solo en el destino",
     "status.different": "Diferente",
     "status.equal": "Igual",
     "type.table": "Tabla",
@@ -158,6 +160,13 @@ const I18N = {
     "type.check": "Restricción",
     "type.trigger": "Disparador",
     "err.noBackend": "Sin backend: abre la app con cargo run o npm run tauri dev (en un navegador normal no hay conexión a las bases).",
+    "err.needDatabase": "Elige la base de datos: sin ella la conexión entra en la que el servidor tenga por defecto, que casi nunca es la que quieres comparar.",
+    "status.pickDb": "Conectado al servidor · {n} bases disponibles: elige una en «Base de datos».",
+    "status.noDbs": "Conectado al servidor, pero no hay ninguna base que puedas abrir.",
+    "status.nDbs": "{n} bases",
+    "db.connectFirst": "Conecta al servidor para ver las bases",
+    "db.pick": "— elige una base —",
+    "err.needPath": "Elige el archivo SQLite.",
   },
   en: {
     "app.subtitle": "Database object comparator",
@@ -191,6 +200,8 @@ const I18N = {
     "field.database": "Database",
     "field.user": "User",
     "field.password": "Password",
+    "field.winAuth": "Windows authentication",
+    "hint.sqlserver": "With the default port, Schemir connects the way SSMS does (shared memory or named pipes when the server is local). Set another port only to force TCP.",
     "field.sqliteFile": "SQLite file",
     "ph.database": "sales",
     "ph.sqlitePath": "/path/to/db.db",
@@ -241,8 +252,8 @@ const I18N = {
     "data.table": "Table",
     "btn.compareData": "Compare data",
     "data.comparing": "Comparing…",
-    "data.leftRows": "Rows only in A",
-    "data.rightRows": "Rows only in B",
+    "data.leftRows": "Rows only in the source",
+    "data.rightRows": "Rows only in the target",
     "data.diffRows": "Rows different",
     "data.equalRows": "Rows equal",
     "data.opInsert": "New",
@@ -259,13 +270,13 @@ const I18N = {
     "script.info": "SQL to make <b class=\"side-b-text\">B</b> match <b class=\"side-a-text\">A</b> · review it before running.",
     "script.none": "-- (no changes)",
     "btn.apply": "Apply to B",
-    "apply.confirm": "Apply the script to database B? This MODIFIES the target (creates, alters and drops objects). Make a backup first.",
+    "apply.confirm": "Apply the script to the target database? This MODIFIES it (creates, alters and drops objects). Make a backup first.",
     "apply.applying": "Applying…",
     "apply.done": "✓ Applied to B. Compare again to confirm.",
     "diagram.legend": "Entity-relationship diagram · 🔑 PK · 🔗 FK",
     "diagram.sideDiff": "Differences",
-    "diagram.sideA": "Source A",
-    "diagram.sideB": "Target B",
+    "diagram.sideA": "Source",
+    "diagram.sideB": "Target",
     "diagram.empty": "No tables to diagram on this side.",
     "diagram.noEngine": "Could not load the diagram engine.",
     "zoom.in": "Zoom in",
@@ -292,10 +303,10 @@ const I18N = {
     "diag.type": "Data type",
     "diag.key": "Key",
     "detail.field": "Field",
-    "detail.a": "A · source",
-    "detail.b": "B · target",
-    "status.only_in_left": "Only in A",
-    "status.only_in_right": "Only in B",
+    "detail.a": "Source",
+    "detail.b": "Target",
+    "status.only_in_left": "Only in the source",
+    "status.only_in_right": "Only in the target",
     "status.different": "Different",
     "status.equal": "Equal",
     "type.table": "Table",
@@ -308,6 +319,13 @@ const I18N = {
     "type.check": "Constraint",
     "type.trigger": "Trigger",
     "err.noBackend": "No backend: open the app with cargo run or npm run tauri dev (a plain browser has no database connection).",
+    "err.needDatabase": "Pick the database: without it the connection lands in whatever the server defaults to, which is almost never the one you meant to compare.",
+    "status.pickDb": "Connected to the server · {n} databases available: pick one under “Database”.",
+    "status.noDbs": "Connected to the server, but there is no database you can open.",
+    "status.nDbs": "{n} databases",
+    "db.connectFirst": "Connect to the server to list databases",
+    "db.pick": "— pick a database —",
+    "err.needPath": "Pick the SQLite file.",
   },
 };
 
@@ -506,6 +524,26 @@ function applyEngineFields(card, engine) {
   card.querySelector(".f-sqlite").hidden = engine !== "sqlite";
   const mysqlHint = card.querySelector(".hint-mysql");
   if (mysqlHint) mysqlHint.hidden = engine !== "mysql";
+  // La autenticación integrada es cosa de SQL Server.
+  const winRow = card.querySelector(".winauth-row");
+  if (winRow) winRow.hidden = engine !== "sqlserver";
+  const ssHint = card.querySelector(".hint-sqlserver");
+  if (ssHint) ssHint.hidden = engine !== "sqlserver";
+  // Las bases listadas eran de otro servidor: el selector vuelve a empezar.
+  setDbPicker(card, null);
+  applyWinAuth(card);
+}
+
+/** Con autenticación de Windows no hay usuario ni contraseña que escribir. */
+function applyWinAuth(card) {
+  const cb = card.querySelector('input[name="windows_auth"]');
+  const on = card.dataset.engine === "sqlserver" && !!cb?.checked;
+  ["user", "password"].forEach((name) => {
+    const el = card.querySelector(`input[name="${name}"]`);
+    if (!el) return;
+    el.disabled = on;
+    el.closest("label")?.classList.toggle("off", on);
+  });
 }
 document.querySelectorAll(".card").forEach((card) => {
   card.querySelectorAll(".seg").forEach((seg) => {
@@ -521,6 +559,10 @@ document.querySelectorAll(".card").forEach((card) => {
       if (esPorDefecto) portInput.value = String(defaultPort(engine));
     });
   });
+  const winCb = card.querySelector('input[name="windows_auth"]');
+  if (winCb) winCb.addEventListener("change", () => applyWinAuth(card));
+  applyWinAuth(card);
+  attachDbPicker(card);
 });
 
 function readConfig(side) {
@@ -537,8 +579,75 @@ function readConfig(side) {
     database: val("database"),
     user: val("user"),
     password: val("password"),
+    // Solo SQL Server la entiende; en los otros motores viaja siempre en false.
+    windows_auth: engine === "sqlserver" && !!card.querySelector('input[name="windows_auth"]')?.checked,
     path: "",
   };
+}
+
+/** Pone un desplegable de bases de datos junto al campo de texto.
+ *
+ * El campo de texto sigue siendo la fuente de la verdad (de ahí lo lee
+ * `readConfig`); el desplegable solo escribe en él. Se ven uno u otro, nunca los
+ * dos, según el estado en que esté la tarjeta. */
+function attachDbPicker(card) {
+  const input = card.querySelector('input[name="database"]');
+  if (!input || card.querySelector("select.db-select")) return;
+  const sel = document.createElement("select");
+  sel.className = "db-select";
+  input.after(sel);
+  sel.addEventListener("change", () => {
+    input.value = sel.value;
+    // La base salió de la lista del propio servidor, así que elegirla ya deja
+    // la conexión lista: no hace falta volver a probarla.
+    connOk[card.dataset.side] = !!sel.value;
+    refreshCompareState();
+  });
+  setDbPicker(card, null);
+}
+
+/** Estado del selector de base de datos.
+ *
+ *  · `null`  → todavía no se ha conectado.
+ *  · `[]`    → conectado, pero el login no puede enumerar ninguna: se escribe.
+ *  · lista   → conectado: se elige de ahí.
+ */
+function setDbPicker(card, bases) {
+  const input = card.querySelector('input[name="database"]');
+  const sel = card.querySelector("select.db-select");
+  if (!input || !sel) return;
+
+  const verTexto = () => { sel.hidden = true; input.hidden = false; };
+  const verLista = () => { sel.hidden = false; input.hidden = true; };
+
+  if (bases === null) {
+    // Sin conectar: si ya hay un nombre (de una comparación guardada, por
+    // ejemplo) se muestra tal cual; si no, el desplegable dice qué hacer.
+    if (input.value) return verTexto();
+    verLista();
+    sel.disabled = true;
+    sel.replaceChildren(new Option(t("db.connectFirst"), ""));
+    return;
+  }
+  if (bases.length === 0) {
+    return verTexto();
+  }
+  verLista();
+  sel.disabled = false;
+  sel.replaceChildren(new Option(t("db.pick"), ""), ...bases.map((b) => new Option(b, b)));
+  sel.value = bases.includes(input.value) ? input.value : "";
+  if (!sel.value) input.value = "";
+}
+
+/** Qué le falta a una conexión para poder usarse, o `null` si está completa.
+ *
+ * La base de datos es obligatoria a propósito: si se manda vacía, el servidor
+ * acepta la conexión igual y te deja en la base por defecto del login (`master`,
+ * casi siempre). Antes eso se reportaba como «Conexión OK» y parecía que todo
+ * estaba bien cuando no se había elegido nada. */
+function connError(c) {
+  if (c.engine === "sqlite") return c.path ? null : t("err.needPath");
+  return c.database ? null : t("err.needDatabase");
 }
 
 // ===========================================================================
@@ -554,7 +663,8 @@ let recentConns = (() => {
 
 /** Firma única de una conexión (para no repetir la misma en la lista). */
 function connSig(c) {
-  return c.engine === "sqlite" ? "sqlite|" + c.path : `${c.engine}|${c.host}:${c.port}/${c.database}@${c.user}`;
+  if (c.engine === "sqlite") return "sqlite|" + c.path;
+  return `${c.engine}|${c.host}:${c.port}/${c.database}@${c.windows_auth ? "(windows)" : c.user}`;
 }
 
 /** Etiqueta corta y legible de una conexión. */
@@ -568,7 +678,7 @@ function rememberConn(c) {
   if (!c) return;
   const useful = c.engine === "sqlite" ? !!c.path : !!(c.host || c.database);
   if (!useful) return;
-  const profile = { engine: c.engine, host: c.host, port: c.port, database: c.database, user: c.user, path: c.path };
+  const profile = { engine: c.engine, host: c.host, port: c.port, database: c.database, user: c.user, path: c.path, windows_auth: !!c.windows_auth };
   const sig = connSig(c);
   recentConns = [profile, ...recentConns.filter((p) => connSig(p) !== sig)].slice(0, 8);
   try {
@@ -609,6 +719,13 @@ function applyConnProfile(card, p) {
     set("port", p.port || defaultPort(engine));
     set("database", p.database);
     set("user", p.user);
+    const winCb = card.querySelector('input[name="windows_auth"]');
+    if (winCb) winCb.checked = !!p.windows_auth;
+    applyWinAuth(card);
+    // El perfil trae un nombre de base, pero todavía no se ha conectado: hay
+    // que devolver el selector a su estado inicial para que ese nombre se VEA
+    // (si no, quedaría escondido detrás del desplegable).
+    setDbPicker(card, null);
   }
   set("password", ""); // nunca guardamos ni rellenamos contraseñas
   // La conexión queda por validar: hay que volver a probarla.
@@ -636,7 +753,7 @@ async function pickFile(title, filters) {
 
 /** Documento con la comparación actual (ambas conexiones SIN contraseña + opciones). */
 function currentComparisonDoc() {
-  const strip = (c) => ({ engine: c.engine, host: c.host, port: c.port, database: c.database, user: c.user, path: c.path });
+  const strip = (c) => ({ engine: c.engine, host: c.host, port: c.port, database: c.database, user: c.user, path: c.path, windows_auth: !!c.windows_auth });
   return { schemir: "comparison", version: 1, options: compareOptions, a: strip(readConfig("a")), b: strip(readConfig("b")) };
 }
 
@@ -709,15 +826,41 @@ document.querySelectorAll(".card").forEach((card) => {
   const btn = card.querySelector(".test-btn");
   const status = card.querySelector(".conn-status");
   btn.addEventListener("click", async () => {
+    const cfg = readConfig(side);
+    // En SQLite la "base" es un archivo: no hay servidor al que conectarse ni
+    // lista que traer, así que sigue haciendo falta la ruta por adelantado.
+    if (cfg.engine === "sqlite" && !cfg.path) {
+      status.className = "conn-status fail";
+      status.textContent = "✗ " + t("err.needPath");
+      connOk[side] = false;
+      refreshCompareState();
+      return;
+    }
     status.className = "conn-status";
     status.textContent = t("status.testing");
     btn.disabled = true;
     try {
-      const msg = await invoke("test_connection", { config: readConfig(side) });
+      // Primero el servidor, que es lo que se puede probar sin saber todavía
+      // qué base se quiere: de ahí sale la lista para elegirla.
+      let bases = [];
+      if (cfg.engine !== "sqlite") {
+        bases = await invoke("list_databases", { config: cfg });
+        setDbPicker(card, bases);
+      }
+      if (cfg.engine !== "sqlite" && !cfg.database) {
+        status.className = "conn-status ok";
+        status.textContent =
+          "✓ " + (bases.length ? t("status.pickDb").replace("{n}", bases.length) : t("status.noDbs"));
+        // Conectar al servidor no basta para comparar: falta elegir la base.
+        connOk[side] = false;
+        return;
+      }
+      const msg = await invoke("test_connection", { config: cfg });
       status.className = "conn-status ok";
-      status.textContent = "✓ " + msg;
+      const extra = bases.length ? " · " + t("status.nDbs").replace("{n}", bases.length) : "";
+      status.textContent = "✓ " + msg + extra;
       connOk[side] = true;
-      rememberConn(readConfig(side));
+      rememberConn(cfg);
     } catch (e) {
       status.className = "conn-status fail";
       status.textContent = "✗ " + errText(e);
@@ -774,6 +917,16 @@ renderRecentSelectors();
 // ===========================================================================
 compareBtn.addEventListener("click", async () => {
   errorBanner.hidden = true;
+  // Lo mismo que en «Probar conexión»: sin base de datos no se compara nada
+  // útil, y el error es mucho más claro aquí que en forma de esquema vacío.
+  for (const side of ["a", "b"]) {
+    const falta = connError(readConfig(side));
+    if (falta) {
+      errorBanner.hidden = false;
+      errorBanner.textContent = (side === "a" ? "ORIGEN: " : "DESTINO: ") + falta;
+      return;
+    }
+  }
   comparing = true;
   compareBtn.disabled = true;
   compareBtn.textContent = t("btn.comparing");
@@ -1461,7 +1614,7 @@ function syncHeader() {
   return [
     "-- ============================================================",
     "-- Script de sincronización generado por Schemir",
-    "-- Deja el DESTINO (B) igual que el ORIGEN (A)",
+    "-- Deja el DESTINO igual que el ORIGEN",
     "-- Motor destino: " + targetDialectLabel(),
     "-- (!) Revísalo y respalda el destino antes de ejecutarlo.",
     "-- ============================================================",

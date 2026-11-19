@@ -7,7 +7,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-use crate::diff::{columns_equal, normalize_def, pk_columns, CompareOptions, DiffStatus};
+use crate::diff::{
+    check_shape, columns_equal, fk_sig, index_name_key, index_shape, normalize_def,
+    pair_objects, pk_columns, CompareOptions, DiffStatus,
+};
 use crate::model::{CheckConstraint, Column, ForeignKey, Identity, Index, Routine, RoutineKind, Schema, Table, Trigger};
 
 /// Dialecto SQL del destino (determina el entrecomillado y la sintaxis).
@@ -794,6 +797,75 @@ impl ScriptUnit {
 }
 
 /// Genera el script separado por objeto con las opciones por defecto.
+/// Los módulos que hay que refrescar, en orden de dependencia.
+///
+/// SQL Server resuelve las referencias de vistas y rutinas de forma diferida y
+/// les guarda los metadatos en caché. Al cambiar la forma de una tabla esos
+/// metadatos quedan viejos —una vista con `SELECT *` sigue anunciando las
+/// columnas de antes— hasta que se los refresca. Es lo que hace SSDT.
+///
+/// `changed` son las tablas cuya forma cambia en este script (nuevas, o con
+/// cambios de columnas) y `rewritten` los módulos que el script ya vuelve a
+/// crear: esos nacen compilados y no hay que tocarlos.
+///
+/// El resultado va por capas: primero los que dependen directamente de una
+/// tabla cambiada, luego los que dependen de esos, y así. Importa porque una
+/// vista montada sobre otra tiene que refrescarse DESPUÉS de la de abajo. Se
+/// itera hasta que una capa no agrega nada, así un ciclo de referencias no lo
+/// cuelga. Dentro de cada capa, por nombre, para que el script sea estable.
+fn modules_to_refresh<'a>(
+    source: &'a Schema,
+    changed: &BTreeSet<String>,
+    rewritten: &BTreeSet<String>,
+) -> Vec<&'a Routine> {
+    // En SQL Server los identificadores no distinguen mayúsculas, y el catálogo
+    // puede devolver una referencia escrita de otra forma: se compara en minúsculas.
+    let baja = |s: &str| s.to_lowercase();
+    let modules: Vec<&Routine> = source
+        .views
+        .iter()
+        .chain(&source.procedures)
+        .chain(&source.functions)
+        .collect();
+
+    let mut alcanzados: BTreeSet<String> = changed.iter().map(|t| baja(t)).collect();
+    let mut orden: Vec<&Routine> = Vec::new();
+    let mut ya: BTreeSet<String> = BTreeSet::new();
+
+    loop {
+        let mut capa: Vec<&Routine> = modules
+            .iter()
+            .copied()
+            .filter(|m| !ya.contains(&baja(&m.qualified_name())))
+            .filter(|m| m.references.iter().any(|r| alcanzados.contains(&baja(r))))
+            .collect();
+        if capa.is_empty() {
+            break;
+        }
+        capa.sort_by_key(|m| m.qualified_name());
+        for m in &capa {
+            ya.insert(baja(&m.qualified_name()));
+        }
+        // Los de esta capa pasan a contar como "cambiados" para la siguiente.
+        for m in &capa {
+            alcanzados.insert(baja(&m.qualified_name()));
+        }
+        orden.extend(capa);
+    }
+
+    orden
+        .into_iter()
+        .filter(|m| !rewritten.contains(&m.qualified_name()))
+        .collect()
+}
+
+/// `EXECUTE sp_refreshsqlmodule` para un módulo, igual que lo emite SSDT.
+fn refresh_module(r: &Routine) -> String {
+    let qn = Dialect::SqlServer.qname(&r.schema, &r.name);
+    // El nombre viaja dentro de una cadena: hay que doblar la comilla simple.
+    format!("EXECUTE sp_refreshsqlmodule N'{}';", qn.replace('\'', "''"))
+}
+
 pub fn generate_sync_units(source: &Schema, target: &Schema, d: Dialect) -> Vec<ScriptUnit> {
     generate_sync_units_opts(source, target, d, &CompareOptions::default())
 }
@@ -810,11 +882,15 @@ pub fn generate_sync_units_opts(source: &Schema, target: &Schema, d: Dialect, o:
     let tgt_tables: BTreeMap<String, &Table> =
         target.tables.iter().map(|t| (t.qualified_name(), t)).collect();
     let src_tnames: BTreeSet<String> = source.tables.iter().map(|t| t.qualified_name()).collect();
+    // Tablas cuya FORMA cambia en este script: las nuevas y las que cambian de
+    // columnas. Son las que dejan con metadatos viejos a quien las referencia.
+    let mut reshaped: BTreeSet<String> = BTreeSet::new();
 
     if o.tables {
         // ── Tablas nuevas ──
         for t in &source.tables {
             if !tgt_tables.contains_key(&t.qualified_name()) {
+                reshaped.insert(t.qualified_name());
                 units.push(ScriptUnit::new("Tabla", t.qualified_name(), OnlyInLeft, "Tablas nuevas", create_table(d, t)));
             }
         }
@@ -830,6 +906,7 @@ pub fn generate_sync_units_opts(source: &Schema, target: &Schema, d: Dialect, o:
                     if o.block_on_data_loss && !risks.is_empty() {
                         sql.insert_str(0, &data_loss_guard(d, &src.schema, &src.name, &risks));
                     }
+                    reshaped.insert(src.qualified_name());
                     units.push(ScriptUnit::new("Tabla", src.qualified_name(), Different, "Cambios en columnas", sql));
                 }
             }
@@ -856,54 +933,45 @@ pub fn generate_sync_units_opts(source: &Schema, target: &Schema, d: Dialect, o:
 
     // ── Índices ──
     if o.indexes {
-        let src: BTreeMap<String, &Index> = source.indexes.iter().map(|i| (index_key(i), i)).collect();
-        let tgt: BTreeMap<String, &Index> = target.indexes.iter().map(|i| (index_key(i), i)).collect();
-        for (k, i) in &src {
-            match tgt.get(k) {
-                None => units.push(ScriptUnit::new("Índice", k.clone(), OnlyInLeft, "Índices", create_index(d, i))),
-                Some(ti) if !same_index(i, ti) => units.push(ScriptUnit::new("Índice", k.clone(), Different, "Índices", format!("{}\n{}", drop_index(d, ti), create_index(d, i)))),
+        // Emparejados por nombre y, los que bautizó el motor, por su forma: así un
+        // `UQ__…` con otro sufijo en cada base no se reporta como quitar uno y
+        // crear otro. El orden se mantiene por clave, como antes.
+        let mut pares = pair_objects(&source.indexes, &target.indexes, index_name_key, index_shape, |i| i.system_named);
+        pares.sort_by_key(|(s, t)| s.or(*t).map(index_key).unwrap_or_default());
+        for (s, t) in pares {
+            match (s, t) {
+                (Some(i), None) => units.push(ScriptUnit::new("Índice", index_key(i), OnlyInLeft, "Índices", create_index(d, i))),
+                (Some(i), Some(ti)) if !same_index(i, ti) => units.push(ScriptUnit::new("Índice", index_key(i), Different, "Índices", format!("{}\n{}", drop_index(d, ti), create_index(d, i)))),
+                (None, Some(ti)) => units.push(ScriptUnit::new("Índice", index_key(ti), OnlyInRight, "Índices", drop_index(d, ti))),
                 _ => {}
-            }
-        }
-        for (k, ti) in &tgt {
-            if !src.contains_key(k) {
-                units.push(ScriptUnit::new("Índice", k.clone(), OnlyInRight, "Índices", drop_index(d, ti)));
             }
         }
     }
 
     // ── Claves foráneas ──
     if o.foreign_keys {
-        let src: BTreeMap<String, &ForeignKey> = source.foreign_keys.iter().map(|f| (f.name.clone(), f)).collect();
-        let tgt: BTreeMap<String, &ForeignKey> = target.foreign_keys.iter().map(|f| (f.name.clone(), f)).collect();
-        for (k, f) in &src {
-            match tgt.get(k) {
-                None => units.push(ScriptUnit::new("Clave foránea", k.clone(), OnlyInLeft, "Claves foráneas", add_fk(d, f))),
-                Some(tf) if !same_fk(f, tf) => units.push(ScriptUnit::new("Clave foránea", k.clone(), Different, "Claves foráneas", format!("{}\n{}", drop_fk(d, tf), add_fk(d, f)))),
+        let mut pares = pair_objects(&source.foreign_keys, &target.foreign_keys, |f| f.name.clone(), fk_sig, |f| f.system_named);
+        pares.sort_by_key(|(s, t)| s.or(*t).map(|f| f.name.clone()).unwrap_or_default());
+        for (s, t) in pares {
+            match (s, t) {
+                (Some(f), None) => units.push(ScriptUnit::new("Clave foránea", f.name.clone(), OnlyInLeft, "Claves foráneas", add_fk(d, f))),
+                (Some(f), Some(tf)) if !same_fk(f, tf) => units.push(ScriptUnit::new("Clave foránea", f.name.clone(), Different, "Claves foráneas", format!("{}\n{}", drop_fk(d, tf), add_fk(d, f)))),
+                (None, Some(tf)) => units.push(ScriptUnit::new("Clave foránea", tf.name.clone(), OnlyInRight, "Claves foráneas", drop_fk(d, tf))),
                 _ => {}
-            }
-        }
-        for (k, tf) in &tgt {
-            if !src.contains_key(k) {
-                units.push(ScriptUnit::new("Clave foránea", k.clone(), OnlyInRight, "Claves foráneas", drop_fk(d, tf)));
             }
         }
     }
 
     // ── Restricciones CHECK ──
     if o.checks {
-        let src: BTreeMap<String, &CheckConstraint> = source.checks.iter().map(|c| (c.name.clone(), c)).collect();
-        let tgt: BTreeMap<String, &CheckConstraint> = target.checks.iter().map(|c| (c.name.clone(), c)).collect();
-        for (k, c) in &src {
-            match tgt.get(k) {
-                None => units.push(ScriptUnit::new("Restricción", k.clone(), OnlyInLeft, "Restricciones CHECK", add_check(d, c))),
-                Some(tc) if normalize_def(&c.definition, o) != normalize_def(&tc.definition, o) => units.push(ScriptUnit::new("Restricción", k.clone(), Different, "Restricciones CHECK", format!("{}\n{}", drop_check(d, tc), add_check(d, c)))),
+        let mut pares = pair_objects(&source.checks, &target.checks, |c| c.name.clone(), |c| check_shape(c, o), |c| c.system_named);
+        pares.sort_by_key(|(s, t)| s.or(*t).map(|c| c.name.clone()).unwrap_or_default());
+        for (s, t) in pares {
+            match (s, t) {
+                (Some(c), None) => units.push(ScriptUnit::new("Restricción", c.name.clone(), OnlyInLeft, "Restricciones CHECK", add_check(d, c))),
+                (Some(c), Some(tc)) if normalize_def(&c.definition, o) != normalize_def(&tc.definition, o) => units.push(ScriptUnit::new("Restricción", c.name.clone(), Different, "Restricciones CHECK", format!("{}\n{}", drop_check(d, tc), add_check(d, c)))),
+                (None, Some(tc)) => units.push(ScriptUnit::new("Restricción", tc.name.clone(), OnlyInRight, "Restricciones CHECK", drop_check(d, tc))),
                 _ => {}
-            }
-        }
-        for (k, tc) in &tgt {
-            if !src.contains_key(k) {
-                units.push(ScriptUnit::new("Restricción", k.clone(), OnlyInRight, "Restricciones CHECK", drop_check(d, tc)));
             }
         }
     }
@@ -922,6 +990,28 @@ pub fn generate_sync_units_opts(source: &Schema, target: &Schema, d: Dialect, o:
     // ── Disparadores ──
     if o.triggers {
         trigger_units(d, &source.triggers, &target.triggers, o, &mut units);
+    }
+
+    // ── Refrescar módulos ──
+    // Va después de crear y alterar todo, porque refresca contra el estado final.
+    // Solo SQL Server lo necesita: PostgreSQL guarda las vistas ya resueltas (no
+    // deja ni quitar una columna que una vista usa), y MySQL y SQLite resuelven
+    // al crear o al consultar.
+    if d == Dialect::SqlServer && !reshaped.is_empty() {
+        let rewritten: BTreeSet<String> = units
+            .iter()
+            .filter(|u| u.section == "Vistas / Procedimientos / Funciones")
+            .map(|u| u.name.clone())
+            .collect();
+        for m in modules_to_refresh(source, &reshaped, &rewritten) {
+            units.push(ScriptUnit::new(
+                "Módulo",
+                m.qualified_name(),
+                Different,
+                "Refrescar módulos",
+                refresh_module(m),
+            ));
+        }
     }
 
     // ── Tablas eliminadas en el destino ──
@@ -948,7 +1038,7 @@ fn script_header(d: Dialect) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "-- ============================================================");
     let _ = writeln!(out, "-- Script de sincronización generado por Schemir");
-    let _ = writeln!(out, "-- Deja el DESTINO (B) igual que el ORIGEN (A)");
+    let _ = writeln!(out, "-- Deja el DESTINO igual que el ORIGEN");
     let _ = writeln!(out, "-- Motor destino: {}", d.label());
     let _ = writeln!(out, "-- (!) Revísalo y respalda el destino antes de ejecutarlo.");
     let _ = writeln!(out, "-- ============================================================");
@@ -1156,8 +1246,8 @@ mod tests {
 
     #[test]
     fn recrea_rutina_distinta() {
-        let a = Schema { procedures: vec![Routine { schema: "dbo".into(), name: "sp".into(), kind: RoutineKind::Procedure, definition: "CREATE PROCEDURE dbo.sp AS SELECT 1".into() }], ..Default::default() };
-        let b = Schema { procedures: vec![Routine { schema: "dbo".into(), name: "sp".into(), kind: RoutineKind::Procedure, definition: "CREATE PROCEDURE dbo.sp AS SELECT 2".into() }], ..Default::default() };
+        let a = Schema { procedures: vec![Routine { schema: "dbo".into(), name: "sp".into(), kind: RoutineKind::Procedure, definition: "CREATE PROCEDURE dbo.sp AS SELECT 1".into(), references: vec![] }], ..Default::default() };
+        let b = Schema { procedures: vec![Routine { schema: "dbo".into(), name: "sp".into(), kind: RoutineKind::Procedure, definition: "CREATE PROCEDURE dbo.sp AS SELECT 2".into(), references: vec![] }], ..Default::default() };
         let s = generate_sync_script(&a, &b, Dialect::SqlServer);
         assert!(s.contains("DROP PROCEDURE IF EXISTS [dbo].[sp]"), "{s}");
         assert!(s.contains("SELECT 1"), "{s}");
@@ -1167,7 +1257,7 @@ mod tests {
     fn script_crea_indice_faltante() {
         use crate::model::Index;
         let a = Schema {
-            indexes: vec![Index { name: "ix1".into(), table: "dbo.C".into(), columns: vec!["a".into(), "b".into()], is_unique: true }],
+            indexes: vec![Index { name: "ix1".into(), system_named: false, table: "dbo.C".into(), columns: vec!["a".into(), "b".into()], is_unique: true }],
             ..Default::default()
         };
         let s = generate_sync_script(&a, &Schema::default(), Dialect::SqlServer);
@@ -1180,6 +1270,7 @@ mod tests {
         let a = Schema {
             foreign_keys: vec![ForeignKey {
                 name: "fk1".into(),
+                system_named: false,
                 from_table: "dbo.Pedidos".into(),
                 from_columns: vec!["cliente_id".into()],
                 to_table: "dbo.Clientes".into(),
@@ -1198,7 +1289,7 @@ mod tests {
     fn script_dropea_indice_sobrante() {
         use crate::model::Index;
         let b = Schema {
-            indexes: vec![Index { name: "ix1".into(), table: "public.c".into(), columns: vec!["a".into()], is_unique: false }],
+            indexes: vec![Index { name: "ix1".into(), system_named: false, table: "public.c".into(), columns: vec!["a".into()], is_unique: false }],
             ..Default::default()
         };
         let s = generate_sync_script(&Schema::default(), &b, Dialect::Postgres);
@@ -1221,7 +1312,7 @@ mod tests {
         // del diff para que la interfaz pueda casarlas y permitir la selección.
         let a = Schema {
             tables: vec![table("Clientes", vec![col("Id", "int", false)])],
-            indexes: vec![Index { name: "ix1".into(), table: "dbo.Clientes".into(), columns: vec!["Id".into()], is_unique: false }],
+            indexes: vec![Index { name: "ix1".into(), system_named: false, table: "dbo.Clientes".into(), columns: vec!["Id".into()], is_unique: false }],
             ..Default::default()
         };
         let units = generate_sync_units(&a, &Schema::default(), Dialect::SqlServer);
@@ -1418,6 +1509,7 @@ mod tests {
         // Sin DELIMITER el cliente cortaría el cuerpo en su primer «;».
         let a = Schema {
             procedures: vec![Routine {
+                references: vec![],
                 schema: "tienda".into(),
                 name: "sp".into(),
                 kind: RoutineKind::Procedure,
@@ -1435,6 +1527,7 @@ mod tests {
     fn mysql_no_envuelve_las_vistas_en_delimiter() {
         let a = Schema {
             views: vec![Routine {
+                references: vec![],
                 schema: "tienda".into(),
                 name: "v".into(),
                 kind: RoutineKind::View,
@@ -1468,7 +1561,7 @@ mod tests {
     fn mysql_dropea_indice_indicando_la_tabla() {
         use crate::model::Index;
         let b = Schema {
-            indexes: vec![Index { name: "ix1".into(), table: "tienda.c".into(), columns: vec!["a".into()], is_unique: false }],
+            indexes: vec![Index { name: "ix1".into(), system_named: false, table: "tienda.c".into(), columns: vec!["a".into()], is_unique: false }],
             ..Default::default()
         };
         let s = generate_sync_script(&Schema::default(), &b, Dialect::MySql);
@@ -1481,6 +1574,7 @@ mod tests {
         let b = Schema {
             foreign_keys: vec![ForeignKey {
                 name: "fk1".into(),
+                system_named: false,
                 from_table: "tienda.pedidos".into(),
                 from_columns: vec!["cliente_id".into()],
                 to_table: "tienda.clientes".into(),
@@ -1499,7 +1593,7 @@ mod tests {
         // information_schema.CHECK_CONSTRAINTS da solo la expresión, igual que
         // SQL Server: el ALTER tiene que poner la palabra CHECK delante.
         let a = Schema {
-            checks: vec![CheckConstraint { name: "ck_total".into(), table: "tienda.pedidos".into(), definition: "(`total` > 0)".into() }],
+            checks: vec![CheckConstraint { name: "ck_total".into(), system_named: false, table: "tienda.pedidos".into(), definition: "(`total` > 0)".into() }],
             ..Default::default()
         };
         let s = generate_sync_script(&a, &Schema::default(), Dialect::MySql);
@@ -1689,5 +1783,186 @@ mod tests {
         // Un `ALTER COLUMN ... TYPE` con el mismo tipo reescribe la tabla entera
         // por nada: no debe salir.
         assert!(!s.contains("TYPE integer"), "{s}");
+    }
+
+    // ── Objetos que bautiza el motor ────────────────────────────────────────
+
+    #[test]
+    fn el_script_no_toca_un_unique_que_el_motor_nombro_distinto() {
+        use crate::model::Index;
+        let uq = |name: &str| Index {
+            name: name.into(),
+            system_named: true,
+            table: "dbo.Producto".into(),
+            columns: vec!["Codigo".into()],
+            is_unique: true,
+        };
+        let a = Schema { indexes: vec![uq("UQ__Producto__AAAA1111")], ..Default::default() };
+        let b = Schema { indexes: vec![uq("UQ__Producto__BBBB2222")], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        // Es la misma restricción: el script no tiene nada que hacer con ella.
+        assert!(!s.contains("DROP INDEX"), "{s}");
+        assert!(!s.contains("CREATE UNIQUE INDEX"), "{s}");
+    }
+
+    #[test]
+    fn el_script_si_renombra_un_indice_con_nombre_propio() {
+        use crate::model::Index;
+        let ix = |name: &str| Index {
+            name: name.into(),
+            system_named: false,
+            table: "dbo.Producto".into(),
+            columns: vec!["Codigo".into()],
+            is_unique: false,
+        };
+        let a = Schema { indexes: vec![ix("IX_Nuevo")], ..Default::default() };
+        let b = Schema { indexes: vec![ix("IX_Viejo")], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("CREATE INDEX [IX_Nuevo]"), "{s}");
+        assert!(s.contains("DROP INDEX [IX_Viejo]"), "{s}");
+    }
+
+    #[test]
+    fn el_script_no_toca_una_foranea_que_el_motor_nombro_distinto() {
+        use crate::model::ForeignKey;
+        let fk = |name: &str| ForeignKey {
+            name: name.into(),
+            system_named: true,
+            from_table: "dbo.Pedido".into(),
+            from_columns: vec!["IdCliente".into()],
+            to_table: "dbo.Cliente".into(),
+            to_columns: vec!["Id".into()],
+        };
+        let a = Schema { foreign_keys: vec![fk("FK__Pedido__AAAA")], ..Default::default() };
+        let b = Schema { foreign_keys: vec![fk("FK__Pedido__BBBB")], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(!s.contains("DROP CONSTRAINT"), "{s}");
+        assert!(!s.contains("ADD CONSTRAINT"), "{s}");
+    }
+
+    // ── Refrescar módulos (sp_refreshsqlmodule) ─────────────────────────────
+
+    /// Un módulo con sus dependencias declaradas, como las lee el catálogo.
+    fn modulo(name: &str, cuerpo: &str, refs: &[&str]) -> Routine {
+        Routine {
+            schema: "dbo".into(),
+            name: name.into(),
+            kind: RoutineKind::View,
+            definition: format!("CREATE VIEW dbo.{name} AS {cuerpo}"),
+            references: refs.iter().map(|r| r.to_string()).collect(),
+        }
+    }
+
+    /// Origen y destino que difieren SOLO en una columna de `Clientes`, con los
+    /// módulos que se le pasen (iguales en los dos lados, para que el script no
+    /// los recree).
+    fn par_con_modulos(mods: Vec<Routine>) -> (Schema, Schema) {
+        let a = Schema {
+            tables: vec![table("Clientes", vec![col("Id", "int", false), col("Nuevo", "int", true)])],
+            views: mods.clone(),
+            ..Default::default()
+        };
+        let b = Schema {
+            tables: vec![table("Clientes", vec![col("Id", "int", false)])],
+            views: mods,
+            ..Default::default()
+        };
+        (a, b)
+    }
+
+    #[test]
+    fn refresca_el_modulo_que_depende_de_una_tabla_que_cambia() {
+        let (a, b) = par_con_modulos(vec![modulo("VistaClientes", "SELECT * FROM Clientes", &["dbo.Clientes"])]);
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("EXECUTE sp_refreshsqlmodule N'[dbo].[VistaClientes]';"), "{s}");
+    }
+
+    #[test]
+    fn no_refresca_un_modulo_que_no_depende_de_nada_cambiado() {
+        let (a, b) = par_con_modulos(vec![modulo("VistaOtra", "SELECT 1", &["dbo.Productos"])]);
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(!s.contains("sp_refreshsqlmodule"), "{s}");
+    }
+
+    #[test]
+    fn el_refresco_va_por_capas_de_dependencia() {
+        // VistaB se monta sobre VistaA, y VistaA sobre la tabla que cambia: hay
+        // que refrescar la de abajo primero.
+        let (a, b) = par_con_modulos(vec![
+            modulo("VistaB", "SELECT * FROM VistaA", &["dbo.VistaA"]),
+            modulo("VistaA", "SELECT * FROM Clientes", &["dbo.Clientes"]),
+        ]);
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        let pa = s.find("N'[dbo].[VistaA]'").expect("falta VistaA");
+        let pb = s.find("N'[dbo].[VistaB]'").expect("falta VistaB");
+        assert!(pa < pb, "VistaA tiene que refrescarse antes que VistaB:\n{s}");
+    }
+
+    #[test]
+    fn no_refresca_un_modulo_que_el_script_vuelve_a_crear() {
+        // La vista cambia de cuerpo, así que el script la recrea: nace compilada
+        // y refrescarla sería ruido.
+        let v = |cuerpo: &str| modulo("VistaClientes", cuerpo, &["dbo.Clientes"]);
+        let a = Schema {
+            tables: vec![table("Clientes", vec![col("Id", "int", false), col("Nuevo", "int", true)])],
+            views: vec![v("SELECT Id, Nuevo FROM Clientes")],
+            ..Default::default()
+        };
+        let b = Schema {
+            tables: vec![table("Clientes", vec![col("Id", "int", false)])],
+            views: vec![v("SELECT Id FROM Clientes")],
+            ..Default::default()
+        };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("CREATE VIEW"), "la vista tiene que recrearse:\n{s}");
+        assert!(!s.contains("sp_refreshsqlmodule"), "{s}");
+    }
+
+    #[test]
+    fn una_tabla_nueva_tambien_obliga_a_refrescar() {
+        // Un módulo puede referenciar una tabla que todavía no existe en el
+        // destino (SQL Server resuelve tarde): al crearla hay que refrescarlo.
+        let m = modulo("VistaPedidos", "SELECT * FROM Pedidos", &["dbo.Pedidos"]);
+        let a = Schema {
+            tables: vec![table("Pedidos", vec![col("Id", "int", false)])],
+            views: vec![m.clone()],
+            ..Default::default()
+        };
+        let b = Schema { views: vec![m], ..Default::default() };
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("EXECUTE sp_refreshsqlmodule N'[dbo].[VistaPedidos]';"), "{s}");
+    }
+
+    #[test]
+    fn solo_sql_server_refresca_modulos() {
+        let (a, b) = par_con_modulos(vec![modulo("VistaClientes", "SELECT * FROM Clientes", &["dbo.Clientes"])]);
+        for d in [Dialect::Postgres, Dialect::MySql, Dialect::Sqlite] {
+            let s = generate_sync_script(&a, &b, d);
+            assert!(!s.contains("sp_refreshsqlmodule"), "{d:?} no debería refrescar:\n{s}");
+        }
+    }
+
+    #[test]
+    fn un_ciclo_de_referencias_no_cuelga_el_refresco() {
+        // Dos módulos que se referencian entre sí (en SQL Server se puede con
+        // procedimientos). El cierre tiene que terminar y nombrar a los dos.
+        let (a, b) = par_con_modulos(vec![
+            modulo("Uno", "SELECT 1", &["dbo.Clientes", "dbo.Dos"]),
+            modulo("Dos", "SELECT 2", &["dbo.Uno"]),
+        ]);
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        assert!(s.contains("N'[dbo].[Uno]'"), "{s}");
+        assert!(s.contains("N'[dbo].[Dos]'"), "{s}");
+        assert_eq!(s.matches("sp_refreshsqlmodule").count(), 2, "{s}");
+    }
+
+    #[test]
+    fn el_refresco_va_despues_de_los_cambios_de_la_tabla() {
+        // Refresca contra el estado final, así que tiene que ir después del ALTER.
+        let (a, b) = par_con_modulos(vec![modulo("VistaClientes", "SELECT * FROM Clientes", &["dbo.Clientes"])]);
+        let s = generate_sync_script(&a, &b, Dialect::SqlServer);
+        let alter = s.find("ALTER TABLE [dbo].[Clientes] ADD").expect("falta el ALTER");
+        let refresco = s.find("sp_refreshsqlmodule").expect("falta el refresco");
+        assert!(alter < refresco, "{s}");
     }
 }

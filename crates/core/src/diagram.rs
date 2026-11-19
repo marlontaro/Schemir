@@ -201,6 +201,7 @@ mod tests {
         };
         let fk = ForeignKey {
             name: "fk".into(),
+            system_named: false,
             from_table: "dbo.Pedidos".into(),
             from_columns: vec!["cliente_id".into()],
             to_table: "dbo.Clientes".into(),

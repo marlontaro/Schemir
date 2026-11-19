@@ -193,6 +193,21 @@ body {
 .fields .row { display: flex; gap: 12px; }
 .fields .row > label { flex: 1; }
 .w-port { max-width: 116px; }
+/* Casilla dentro de un bloque de campos: en fila, no apilada como una etiqueta. */
+.fields label.check { flex-direction: row; align-items: center; gap: 8px; cursor: pointer; }
+.fields label.check input { width: auto; accent-color: var(--accent); }
+.fields label.check[hidden] { display: none; }
+.fields label.off { opacity: 0.45; }
+/* El desplegable de bases de datos ocupa el sitio del campo de texto, así que
+   se viste igual que un input para que la tarjeta no dé un salto visual. */
+.db-select {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  border-radius: var(--radius-sm); padding: 10px 12px; font-size: 13px; outline: none;
+  width: 100%; cursor: pointer;
+}
+.db-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.16); }
+.db-select:disabled { color: var(--muted-2); cursor: default; }
+.db-select[hidden] { display: none; }
 .field-col { display: flex; flex-direction: column; gap: 6px; }
 .lbl, label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
 .path-row { display: flex; gap: 8px; align-items: stretch; }

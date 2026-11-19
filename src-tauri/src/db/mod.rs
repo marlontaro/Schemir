@@ -3,6 +3,7 @@
 //! según el motor elegido.
 
 pub mod mysql;
+pub mod row;
 pub mod postgres;
 pub mod sqlite;
 pub mod sqlserver;
@@ -42,6 +43,12 @@ pub struct ConnectionConfig {
     pub user: String,
     #[serde(default)]
     pub password: String,
+    /// Autenticación integrada de Windows. Schemir entra como el usuario que
+    /// tiene la sesión abierta y `user` / `password` se ignoran: no hay ninguna
+    /// contraseña que escribir ni que guardar. Es como se conecta SSDT por
+    /// defecto. Solo SQL Server, y solo cuando Schemir corre en Windows.
+    #[serde(default)]
+    pub windows_auth: bool,
 
     // --- SQLite ---
     /// Ruta al archivo .db / .sqlite.
@@ -60,6 +67,17 @@ pub async fn read_schema(cfg: &ConnectionConfig) -> Result<Schema, String> {
         EngineKind::Postgres => postgres::read_schema(cfg).await.map_err(|e| e.to_string()),
         EngineKind::MySql => mysql::read_schema(cfg).await.map_err(|e| e.to_string()),
         EngineKind::Sqlite => run_blocking(cfg.path.clone(), sqlite::read_schema).await,
+    }
+}
+
+/// Lista las bases de datos del servidor, para poder ELEGIR una en vez de
+/// escribirla de memoria. En SQLite no aplica: ahí la base es un archivo.
+pub async fn list_databases(cfg: &ConnectionConfig) -> Result<Vec<String>, String> {
+    match cfg.engine {
+        EngineKind::SqlServer => sqlserver::list_databases(cfg).await.map_err(|e| e.to_string()),
+        EngineKind::Postgres => postgres::list_databases(cfg).await.map_err(|e| e.to_string()),
+        EngineKind::MySql => mysql::list_databases(cfg).await.map_err(|e| e.to_string()),
+        EngineKind::Sqlite => Ok(Vec::new()),
     }
 }
 

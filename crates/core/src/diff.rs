@@ -338,15 +338,95 @@ fn yesno(b: bool) -> String {
 }
 
 /// Compara índices por nombre calificado (tabla + nombre del índice).
+/// Empareja los objetos de los dos lados. El nombre va primero, porque es la
+/// señal más fuerte; después, y SOLO cuando el motor bautizó a alguno de los
+/// dos, se empareja por la forma del objeto (su tabla, sus columnas, su
+/// expresión).
+///
+/// Hace falta porque SQL Server nombra solo las restricciones que se declaran
+/// sin nombre y les pone un sufijo distinto en cada base
+/// (`UQ__Product__F25D9D35E79EE34A` frente a `UQ__Product__F25D9D356FD9DE35`).
+/// Emparejando solo por nombre, dos bases creadas con el mismo script muestran
+/// una restricción que se quita y otra que se crea, y ninguna de las dos es una
+/// diferencia real: es la misma restricción con otro nombre de relleno.
+///
+/// Devuelve los pares en orden: primero los de la izquierda en su orden, y al
+/// final los de la derecha que no encontraron pareja.
+pub(crate) fn pair_objects<'a, T>(
+    left: &'a [T],
+    right: &'a [T],
+    name_of: impl Fn(&T) -> String,
+    shape_of: impl Fn(&T) -> String,
+    engine_named: impl Fn(&T) -> bool,
+) -> Vec<(Option<&'a T>, Option<&'a T>)> {
+    let nombres: Vec<String> = right.iter().map(|r| name_of(r)).collect();
+    let formas: Vec<String> = right.iter().map(|r| shape_of(r)).collect();
+    let mut por_nombre: BTreeMap<&str, usize> = BTreeMap::new();
+    for (i, n) in nombres.iter().enumerate() {
+        por_nombre.entry(n.as_str()).or_insert(i);
+    }
+    let mut por_forma: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+    for (i, f) in formas.iter().enumerate() {
+        por_forma.entry(f.as_str()).or_default().push(i);
+    }
+
+    let mut usado = vec![false; right.len()];
+    let mut pares: Vec<(Option<&T>, Option<&T>)> = Vec::with_capacity(left.len() + right.len());
+    for l in left {
+        if let Some(&i) = por_nombre.get(name_of(l).as_str()) {
+            if !usado[i] {
+                usado[i] = true;
+                pares.push((Some(l), Some(&right[i])));
+                continue;
+            }
+        }
+        let por_estructura = por_forma.get(shape_of(l).as_str()).and_then(|cands| {
+            cands
+                .iter()
+                .copied()
+                .find(|&i| !usado[i] && (engine_named(l) || engine_named(&right[i])))
+        });
+        match por_estructura {
+            Some(i) => {
+                usado[i] = true;
+                pares.push((Some(l), Some(&right[i])));
+            }
+            None => pares.push((Some(l), None)),
+        }
+    }
+    for (i, r) in right.iter().enumerate() {
+        if !usado[i] {
+            pares.push((None, Some(r)));
+        }
+    }
+    pares
+}
+
+/// Nombre con el que se empareja (y se muestra) un índice.
+pub(crate) fn index_name_key(i: &Index) -> String {
+    format!("{}.{}", i.table, i.name)
+}
+
+/// Forma de un índice: lo que lo hace ser el mismo índice aunque se llame de
+/// otra manera. El `\u{1}` no puede aparecer en un identificador real, así que
+/// separa los campos sin riesgo de que dos formas distintas coincidan.
+pub(crate) fn index_shape(i: &Index) -> String {
+    format!("{}\u{1}{}\u{1}{}", i.table, i.is_unique, i.columns.join(","))
+}
+
+/// Forma de una restricción CHECK: su tabla y su expresión, normalizada con las
+/// mismas opciones con las que se compara.
+pub(crate) fn check_shape(c: &CheckConstraint, o: &CompareOptions) -> String {
+    format!("{}\u{1}{}", c.table, normalize_def(&c.definition, o))
+}
+
 fn diff_indexes(left: &[Index], right: &[Index], out: &mut Vec<ObjectDiff>) {
-    let key = |i: &Index| format!("{}.{}", i.table, i.name);
-    let lm: BTreeMap<String, &Index> = left.iter().map(|i| (key(i), i)).collect();
-    let rm: BTreeMap<String, &Index> = right.iter().map(|i| (key(i), i)).collect();
-    for name in union_keys(&lm, &rm) {
-        let diff = match (lm.get(&name), rm.get(&name)) {
-            (Some(_), None) => ObjectDiff { object_type: "Índice".into(), name, status: DiffStatus::OnlyInLeft, details: vec![] },
-            (None, Some(_)) => ObjectDiff { object_type: "Índice".into(), name, status: DiffStatus::OnlyInRight, details: vec![] },
+    for (izq, der) in pair_objects(left, right, index_name_key, index_shape, |i| i.system_named) {
+        let diff = match (izq, der) {
+            (Some(l), None) => ObjectDiff { object_type: "Índice".into(), name: index_name_key(l), status: DiffStatus::OnlyInLeft, details: vec![] },
+            (None, Some(r)) => ObjectDiff { object_type: "Índice".into(), name: index_name_key(r), status: DiffStatus::OnlyInRight, details: vec![] },
             (Some(l), Some(r)) => {
+                let name = index_name_key(l);
                 let mut details = vec![];
                 if l.columns != r.columns {
                     details.push(FieldDiff { field: "columnas".into(), left: Some(l.columns.join(", ")), right: Some(r.columns.join(", ")) });
@@ -363,19 +443,19 @@ fn diff_indexes(left: &[Index], right: &[Index], out: &mut Vec<ObjectDiff>) {
     }
 }
 
-fn fk_sig(f: &ForeignKey) -> String {
+pub(crate) fn fk_sig(f: &ForeignKey) -> String {
     format!("{}({}) -> {}({})", f.from_table, f.from_columns.join(","), f.to_table, f.to_columns.join(","))
 }
 
-/// Compara claves foráneas por nombre.
+/// Compara claves foráneas por nombre, y por su forma cuando el nombre lo puso
+/// el motor.
 fn diff_foreign_keys(left: &[ForeignKey], right: &[ForeignKey], out: &mut Vec<ObjectDiff>) {
-    let lm: BTreeMap<String, &ForeignKey> = left.iter().map(|f| (f.name.clone(), f)).collect();
-    let rm: BTreeMap<String, &ForeignKey> = right.iter().map(|f| (f.name.clone(), f)).collect();
-    for name in union_keys(&lm, &rm) {
-        let diff = match (lm.get(&name), rm.get(&name)) {
-            (Some(_), None) => ObjectDiff { object_type: "Clave foránea".into(), name, status: DiffStatus::OnlyInLeft, details: vec![] },
-            (None, Some(_)) => ObjectDiff { object_type: "Clave foránea".into(), name, status: DiffStatus::OnlyInRight, details: vec![] },
+    for (izq, der) in pair_objects(left, right, |f| f.name.clone(), fk_sig, |f| f.system_named) {
+        let diff = match (izq, der) {
+            (Some(l), None) => ObjectDiff { object_type: "Clave foránea".into(), name: l.name.clone(), status: DiffStatus::OnlyInLeft, details: vec![] },
+            (None, Some(r)) => ObjectDiff { object_type: "Clave foránea".into(), name: r.name.clone(), status: DiffStatus::OnlyInRight, details: vec![] },
             (Some(l), Some(r)) => {
+                let name = l.name.clone();
                 let (ls, rs) = (fk_sig(l), fk_sig(r));
                 let details = if ls != rs { vec![FieldDiff { field: "definición".into(), left: Some(ls), right: Some(rs) }] } else { vec![] };
                 let status = if details.is_empty() { DiffStatus::Equal } else { DiffStatus::Different };
@@ -387,15 +467,15 @@ fn diff_foreign_keys(left: &[ForeignKey], right: &[ForeignKey], out: &mut Vec<Ob
     }
 }
 
-/// Compara restricciones CHECK por nombre.
+/// Compara restricciones CHECK por nombre, y por su forma cuando el nombre lo
+/// puso el motor.
 fn diff_checks(left: &[CheckConstraint], right: &[CheckConstraint], o: &CompareOptions, out: &mut Vec<ObjectDiff>) {
-    let lm: BTreeMap<String, &CheckConstraint> = left.iter().map(|c| (c.name.clone(), c)).collect();
-    let rm: BTreeMap<String, &CheckConstraint> = right.iter().map(|c| (c.name.clone(), c)).collect();
-    for name in union_keys(&lm, &rm) {
-        let diff = match (lm.get(&name), rm.get(&name)) {
-            (Some(_), None) => ObjectDiff { object_type: "Restricción".into(), name, status: DiffStatus::OnlyInLeft, details: vec![] },
-            (None, Some(_)) => ObjectDiff { object_type: "Restricción".into(), name, status: DiffStatus::OnlyInRight, details: vec![] },
+    for (izq, der) in pair_objects(left, right, |c| c.name.clone(), |c| check_shape(c, o), |c| c.system_named) {
+        let diff = match (izq, der) {
+            (Some(l), None) => ObjectDiff { object_type: "Restricción".into(), name: l.name.clone(), status: DiffStatus::OnlyInLeft, details: vec![] },
+            (None, Some(r)) => ObjectDiff { object_type: "Restricción".into(), name: r.name.clone(), status: DiffStatus::OnlyInRight, details: vec![] },
             (Some(l), Some(r)) => {
+                let name = l.name.clone();
                 let same = normalize_def(&l.definition, o) == normalize_def(&r.definition, o);
                 let details = if same { vec![] } else { vec![FieldDiff { field: "definición".into(), left: Some(l.definition.clone()), right: Some(r.definition.clone()) }] };
                 let status = if same { DiffStatus::Equal } else { DiffStatus::Different };
@@ -544,6 +624,7 @@ mod tests {
 
     fn proc(name: &str, body: &str) -> Routine {
         Routine {
+            references: vec![],
             schema: "dbo".into(),
             name: name.into(),
             kind: RoutineKind::Procedure,
@@ -615,7 +696,7 @@ mod tests {
     fn indice_solo_en_izquierda() {
         use crate::model::Index;
         let left = Schema {
-            indexes: vec![Index { name: "ix1".into(), table: "dbo.C".into(), columns: vec!["a".into()], is_unique: true }],
+            indexes: vec![Index { name: "ix1".into(), system_named: false, table: "dbo.C".into(), columns: vec!["a".into()], is_unique: true }],
             ..Default::default()
         };
         let r = compare_schemas(&left, &Schema::default());
@@ -628,6 +709,7 @@ mod tests {
         use crate::model::ForeignKey;
         let mk = |to: &str| ForeignKey {
             name: "fk".into(),
+            system_named: false,
             from_table: "dbo.P".into(),
             from_columns: vec!["cid".into()],
             to_table: to.into(),
@@ -706,5 +788,106 @@ mod tests {
         assert!(d.field.contains("Id"), "{d:?}");
         assert!(d.left.as_deref().unwrap_or("").contains("IDENTITY(1,1)"), "{d:?}");
         assert!(!d.right.as_deref().unwrap_or("").contains("IDENTITY"), "{d:?}");
+    }
+
+    // ── Objetos que bautiza el motor ────────────────────────────────────────
+
+    /// La misma restricción UNIQUE, con el nombre de relleno que le pone el
+    /// motor. `system_named` dice quién lo nombró.
+    fn uq(name: &str, system_named: bool) -> Index {
+        Index {
+            name: name.into(),
+            system_named,
+            table: "dbo.Producto".into(),
+            columns: vec!["Codigo".into()],
+            is_unique: true,
+        }
+    }
+
+    #[test]
+    fn un_unique_autonombrado_distinto_en_cada_base_no_es_una_diferencia() {
+        // Dos bases creadas con el mismo script: SQL Server le pega a cada una
+        // un sufijo distinto. Antes salía una restricción que se quita y otra
+        // que se crea, y ninguna de las dos era real.
+        let left = Schema { indexes: vec![uq("UQ__Producto__AAAA1111", true)], ..Default::default() };
+        let right = Schema { indexes: vec![uq("UQ__Producto__BBBB2222", true)], ..Default::default() };
+        let s = compare_schemas(&left, &right).summary();
+        assert_eq!((s.only_in_left, s.only_in_right, s.different), (0, 0, 0));
+        assert_eq!(s.equal, 1);
+    }
+
+    #[test]
+    fn un_indice_con_nombre_propio_si_cuenta_como_diferencia() {
+        // Si los nombres los puso una persona, cambiar el nombre ES un cambio:
+        // el emparejamiento por forma no debe tragárselo.
+        let left = Schema { indexes: vec![uq("IX_Producto_Codigo", false)], ..Default::default() };
+        let right = Schema { indexes: vec![uq("IX_Codigo", false)], ..Default::default() };
+        let s = compare_schemas(&left, &right).summary();
+        assert_eq!((s.only_in_left, s.only_in_right), (1, 1));
+    }
+
+    #[test]
+    fn basta_que_el_motor_haya_nombrado_a_uno_de_los_dos() {
+        // Autonombrada en el origen y con nombre propio en el destino: es la
+        // misma restricción, así que no hay nada que sincronizar.
+        let left = Schema { indexes: vec![uq("UQ__Producto__AAAA1111", true)], ..Default::default() };
+        let right = Schema { indexes: vec![uq("UQ_Producto_Codigo", false)], ..Default::default() };
+        let s = compare_schemas(&left, &right).summary();
+        assert_eq!((s.only_in_left, s.only_in_right), (0, 0));
+    }
+
+    #[test]
+    fn un_unique_autonombrado_sobre_otra_columna_si_es_una_diferencia() {
+        // Misma marca, pero otra forma: son dos restricciones distintas y las dos
+        // tienen que aparecer.
+        let mut otra = uq("UQ__Producto__BBBB2222", true);
+        otra.columns = vec!["Nombre".into()];
+        let left = Schema { indexes: vec![uq("UQ__Producto__AAAA1111", true)], ..Default::default() };
+        let right = Schema { indexes: vec![otra], ..Default::default() };
+        let s = compare_schemas(&left, &right).summary();
+        assert_eq!((s.only_in_left, s.only_in_right), (1, 1));
+    }
+
+    #[test]
+    fn un_check_autonombrado_se_empareja_por_su_expresion() {
+        let mk = |name: &str| CheckConstraint {
+            name: name.into(),
+            system_named: true,
+            table: "dbo.Pedido".into(),
+            definition: "([Total]>(0))".into(),
+        };
+        let left = Schema { checks: vec![mk("CK__Pedido__Total__AAAA")], ..Default::default() };
+        let right = Schema { checks: vec![mk("CK__Pedido__Total__BBBB")], ..Default::default() };
+        let s = compare_schemas(&left, &right).summary();
+        assert_eq!((s.only_in_left, s.only_in_right), (0, 0));
+    }
+
+    #[test]
+    fn una_foranea_autonombrada_se_empareja_por_lo_que_apunta() {
+        let mk = |name: &str| ForeignKey {
+            name: name.into(),
+            system_named: true,
+            from_table: "dbo.Pedido".into(),
+            from_columns: vec!["IdCliente".into()],
+            to_table: "dbo.Cliente".into(),
+            to_columns: vec!["Id".into()],
+        };
+        let left = Schema { foreign_keys: vec![mk("FK__Pedido__IdClie__AAAA")], ..Default::default() };
+        let right = Schema { foreign_keys: vec![mk("FK__Pedido__IdClie__BBBB")], ..Default::default() };
+        let s = compare_schemas(&left, &right).summary();
+        assert_eq!((s.only_in_left, s.only_in_right), (0, 0));
+    }
+
+    #[test]
+    fn dos_autonombradas_iguales_en_el_origen_no_se_emparejan_con_una_sola() {
+        // Dos restricciones con la misma forma en el origen y una en el destino:
+        // una encuentra pareja y la otra tiene que quedar reportada.
+        let left = Schema {
+            indexes: vec![uq("UQ__Producto__AAAA1111", true), uq("UQ__Producto__CCCC3333", true)],
+            ..Default::default()
+        };
+        let right = Schema { indexes: vec![uq("UQ__Producto__BBBB2222", true)], ..Default::default() };
+        let s = compare_schemas(&left, &right).summary();
+        assert_eq!((s.only_in_left, s.only_in_right, s.equal), (1, 0, 1));
     }
 }

@@ -33,7 +33,7 @@ fn dialect_of(engine: EngineKind) -> Dialect {
 }
 
 /// Comando principal: lee ambos esquemas, los compara y genera el script de
-/// sincronización (para dejar el DESTINO (B) igual que el ORIGEN (A)).
+/// sincronización (para dejar el DESTINO igual que el ORIGEN).
 #[tauri::command]
 async fn compare_databases(
     left: ConnectionConfig,
@@ -43,10 +43,10 @@ async fn compare_databases(
     let opts = options.unwrap_or_default();
     let source = db::read_schema(&left)
         .await
-        .map_err(|e| format!("ORIGEN (A): {e}"))?;
+        .map_err(|e| format!("ORIGEN: {e}"))?;
     let target = db::read_schema(&right)
         .await
-        .map_err(|e| format!("DESTINO (B): {e}"))?;
+        .map_err(|e| format!("DESTINO: {e}"))?;
 
     let comparison = compare_schemas_opts(&source, &target, &opts);
     let dialect = dialect_of(right.engine);
@@ -56,6 +56,12 @@ async fn compare_databases(
     let diagram_b = to_diagram_model(&target);
     let diagram_diff = to_diff_diagram_opts(&source, &target, &opts);
     Ok(CompareOutput { comparison, script, script_units, diagram_a, diagram_b, diagram_diff })
+}
+
+/// Lista las bases de datos del servidor, para que se puedan elegir.
+#[tauri::command]
+async fn list_databases(config: ConnectionConfig) -> Result<Vec<String>, String> {
+    db::list_databases(&config).await
 }
 
 /// Prueba una conexión y devuelve un mensaje legible (versión del motor, etc.).
@@ -104,10 +110,10 @@ async fn compare_data(
     }
     let lt = db::read_table_data(&left, &table)
         .await
-        .map_err(|e| format!("ORIGEN (A): {e}"))?;
+        .map_err(|e| format!("ORIGEN: {e}"))?;
     let rt = db::read_table_data(&right, &table)
         .await
-        .map_err(|e| format!("DESTINO (B): {e}"))?;
+        .map_err(|e| format!("DESTINO: {e}"))?;
     let dialect = dialect_of(right.engine);
     Ok(compare_table_data(&lt, &rt, dialect))
 }
@@ -118,6 +124,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             compare_databases,
             test_connection,
+            list_databases,
             save_text_file,
             save_binary_file,
             read_text_file,

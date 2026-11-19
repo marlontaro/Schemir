@@ -34,6 +34,23 @@ async fn connect(cfg: &ConnectionConfig) -> DbResult<Client> {
 }
 
 /// Prueba la conexión y devuelve la versión del servidor.
+/// Lista las bases del servidor. En PostgreSQL hay que estar conectado a
+/// ALGUNA base para poder preguntar, así que se usa la que haya escrita y, si no
+/// hay ninguna, `postgres`, que existe en toda instalación.
+pub async fn list_databases(cfg: &ConnectionConfig) -> DbResult<Vec<String>> {
+    let base = if cfg.database.is_empty() { "postgres".to_string() } else { cfg.database.clone() };
+    let client = connect(&ConnectionConfig { database: base, ..cfg.clone() }).await?;
+    let filas = client
+        .query(
+            "SELECT datname FROM pg_database \
+             WHERE datistemplate = false AND has_database_privilege(datname, 'CONNECT') \
+             ORDER BY datname",
+            &[],
+        )
+        .await?;
+    Ok(filas.iter().map(|r| r.get::<_, String>("datname")).collect())
+}
+
 pub async fn test_connection(cfg: &ConnectionConfig) -> DbResult<String> {
     let client = connect(cfg).await?;
     let version: String = client.query_one("SELECT version()", &[]).await?.get(0);
@@ -195,7 +212,9 @@ async fn read_routines(client: &Client) -> DbResult<(Vec<Routine>, Vec<Routine>,
         let name: String = row.get("view_name");
         let def: String = row.get("definition");
         let definition = format!("CREATE OR REPLACE VIEW \"{schema}\".\"{name}\" AS {def}");
-        views.push(Routine { schema, name, kind: RoutineKind::View, definition });
+        // PostgreSQL guarda las vistas ya resueltas y no deja quitar una columna
+        // que una vista usa, así que no hay metadatos viejos que refrescar.
+        views.push(Routine { schema, name, kind: RoutineKind::View, definition, references: vec![] });
     }
 
     let mut procedures = Vec::new();
@@ -206,9 +225,9 @@ async fn read_routines(client: &Client) -> DbResult<(Vec<Routine>, Vec<Routine>,
         let kind: String = row.get("kind");
         let definition: String = row.get("definition");
         if kind == "p" {
-            procedures.push(Routine { schema, name, kind: RoutineKind::Procedure, definition });
+            procedures.push(Routine { schema, name, kind: RoutineKind::Procedure, definition, references: vec![] });
         } else {
-            functions.push(Routine { schema, name, kind: RoutineKind::ScalarFunction, definition });
+            functions.push(Routine { schema, name, kind: RoutineKind::ScalarFunction, definition, references: vec![] });
         }
     }
 
@@ -240,7 +259,10 @@ async fn read_foreign_keys(client: &Client) -> DbResult<Vec<ForeignKey>> {
         let to_table = format!("{}.{}", row.get::<_, String>("to_schema"), row.get::<_, String>("to_table"));
         if !map.contains_key(&name) {
             order.push(name.clone());
-            map.insert(name.clone(), ForeignKey { name: name.clone(), from_table, from_columns: Vec::new(), to_table, to_columns: Vec::new() });
+            // PostgreSQL deriva el nombre automático de la tabla y las columnas
+            // (`pedidos_idcliente_fkey`), igual en las dos bases, así que el nombre
+            // sirve para emparejar y no hace falta marcar nada.
+            map.insert(name.clone(), ForeignKey { name: name.clone(), system_named: false, from_table, from_columns: Vec::new(), to_table, to_columns: Vec::new() });
         }
         if let Some(fk) = map.get_mut(&name) {
             fk.from_columns.push(row.get("from_col"));
@@ -274,7 +296,7 @@ async fn read_indexes(client: &Client) -> DbResult<Vec<Index>> {
         let key = format!("{schema}.{table}.{iname}");
         if !map.contains_key(&key) {
             order.push(key.clone());
-            map.insert(key.clone(), Index { name: iname.clone(), table: format!("{schema}.{table}"), columns: Vec::new(), is_unique: row.get("is_unique") });
+            map.insert(key.clone(), Index { name: iname.clone(), system_named: false, table: format!("{schema}.{table}"), columns: Vec::new(), is_unique: row.get("is_unique") });
         }
         if let Some(ix) = map.get_mut(&key) {
             ix.columns.push(row.get("col_name"));
@@ -300,6 +322,7 @@ async fn read_checks(client: &Client) -> DbResult<Vec<CheckConstraint>> {
         let table: String = row.get("table_name");
         out.push(CheckConstraint {
             name: row.get("check_name"),
+            system_named: false,
             table: format!("{schema}.{table}"),
             definition: row.get("definition"),
         });

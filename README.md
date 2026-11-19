@@ -54,6 +54,32 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
 
 **Compare**
 - 🔌 **Four engines:** SQL Server, PostgreSQL, MySQL / MariaDB and SQLite.
+- 🔁 **Dependent modules are refreshed** (SQL Server). SQL Server resolves view and
+  routine references lazily and caches their metadata, so reshaping a table leaves every view
+  and procedure built on it announcing the old columns. Schemir reads the real dependency
+  graph from `sys.sql_expression_dependencies` and emits `EXECUTE sp_refreshsqlmodule` for
+  everything that depends on a reshaped table, directly or through other modules, in
+  dependency order — skipping whatever the script already re-creates.
+- 🏷️ **Constraints the engine named itself are matched by shape, not by name.** SQL Server
+  bautizes an unnamed `UNIQUE`, `CHECK` or `FOREIGN KEY` with a per-database suffix
+  (`UQ__Product__F25D9D35E79EE34A`), so two databases built from the same script would
+  otherwise show differences that do not exist. Names a person chose are still compared as
+  names: renaming your own index *is* a change.
+- 🗂️ **Connect first, then pick the database.**  reaches the *server*,
+  not a database, and brings back the list of the ones your login can actually open
+  (filtered by `HAS_DBACCESS` on SQL Server, `has_database_privilege` on PostgreSQL); the
+  field turns into a real dropdown. Where the login cannot enumerate them, it falls back to a
+  plain text box so you are never stuck.
+- 🔌 **Connects to SQL Server the way SSMS does.** On Windows, Schemir goes through the
+  Microsoft ODBC driver, which speaks **shared memory, named pipes *and* TCP** and resolves
+  Windows authentication itself. Type the server name, leave the port alone, and it works
+  against a local instance **even when TCP/IP is disabled** — which is how many local
+  installs ship. No port to open, no server to reconfigure. Where no ODBC driver is
+  installed, and on macOS and Linux, it falls back to a pure-Rust TCP driver; `Test
+  connection` says which of the two it used.
+- 🔐 **Windows authentication** on SQL Server, the way SSDT connects by default:
+  Schemir enters as the Windows user of the current session, so there is no password to type
+  and none to store.
 - 🧱 **Every object:** tables and columns (type, nullability, *default*), views, procedures,
   functions, **primary & foreign keys, indexes, CHECK constraints and triggers**.
 - 🎛️ **Comparison options** (SSDT-style): ignore case, whitespace, comments and column
@@ -107,6 +133,18 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
 
 > **MySQL and MariaDB** speak the same protocol and expose the same `information_schema`,
 > so a single reader covers both.
+>
+> **Windows authentication** is available for **SQL Server** when Schemir itself runs on
+> Windows. Tick the box and the user and password fields grey out; the flag is remembered
+> with the connection, since there is no secret in it. The other three engines use user and
+> password.
+>
+> **Two ways in for SQL Server.** With an ODBC driver installed (Windows), Schemir uses it and
+> lets it pick the transport exactly as SSMS would — that is why the port can be left at its
+> default: writing a port forces TCP. Otherwise it uses `tiberius` over TCP, which needs
+> nothing installed but does need the server listening. Reading the same 151-object schema
+> took **3.1 s over ODBC** against **1.1 s over TCP**: ODBC asks for every value as text and
+> fetches row by row, which is the price of not needing a port.
 >
 > **No transaction in MySQL / MariaDB:** the engine commits implicitly on every DDL
 > statement, so there is nothing to roll back. The data-loss guard still works there — it
@@ -217,10 +255,50 @@ cargo test --manifest-path src-tauri/Cargo.toml # app + integration (SQLite)
 ## 🗺️ Roadmap & limitations
 
 - **Data** comparison covers **SQLite** today (structure covers all four engines).
-- **SQL Server, PostgreSQL and MySQL / MariaDB** against real servers are not yet verified
-  end-to-end: the code compiles and its dialect and parsing logic are unit-tested, but the
-  only engine exercised against a real database is SQLite. The catalog queries may need
-  tweaks against a real server.
+- **SQL Server and SQLite are verified end-to-end against real databases.** SQL Server was
+  read against a 151-object schema in daily use (25 tables, 21 views, 22 procedures, 23
+  functions, 31 foreign keys, 30 indexes): Schemir read both sides with Windows
+  authentication in ~1.1 s and reported every one of 17 deliberately introduced differences,
+  down to the column detail. **PostgreSQL and MySQL / MariaDB are still not verified
+  end-to-end** — the code compiles and the dialect and parsing logic are unit-tested, but
+  their catalog queries have never run against a real server.
+- **How the ODBC path came to be,** because it is a useful story: the instance Schemir was
+  verified against has **no ordinary TCP listener at all** — TCP/IP and named pipes are both
+  disabled and only shared memory is on, which is how plenty of local installs ship. The one
+  open port was 1434, the **DAC** (dedicated administrator connection), which SQL Server always
+  opens locally and which accepts exactly *one* connection. Schemir's TCP driver found it and
+  went in through it; since a comparison opens **one connection per side and holds both at
+  once**, about half the runs died mid-read with `os error 10054`, and the server log named it
+  (`Error 17810: the maximum number of '1' dedicated administrator connections already
+  exists`). The fix was not to ask the user to open a port: it was to connect the way SSMS
+  does. Over ODBC the same comparison now runs over shared memory, verified by asking the
+  server itself (`sys.dm_exec_connections.net_transport` reports `Shared memory`, no TCP port),
+  and both sides of the 151-object schema read in 3.1 s.
+- **Measured against SSDT** on that same pair (`SqlPackage /Action:Script` and
+  `/Action:DeployReport`, from a `.dacpac` of the source — SqlPackage refuses database against
+  database, that lives only in the Visual Studio window). **The two tools now agree object for
+  object**: the same 6 objects to drop, the same 3 objects to alter, and the same 7 to create.
+  Three things are still worth knowing:
+  - **Module refreshing is now covered, and Schemir casts a wider net than SSDT.** On the
+    same pair, SSDT refreshed 18 modules and Schemir refreshes 37. Schemir's rule is the one
+    it can state exactly: the transitive closure of the dependency graph over the reshaped
+    tables (47 modules), minus the 10 the script already re-creates. SSDT prunes further —
+    it skipped scalar functions and multi-statement table-valued functions, whose result
+    shape is declared rather than inferred, and two procedures we cannot account for from a
+    single sample. Rather than guess at a rule we only half understand, Schemir refreshes
+    everything that could be stale: an unnecessary `sp_refreshsqlmodule` revalidates and
+    moves on, whereas a missing one leaves a view lying about its own columns.
+  - **The data-loss guard is more cautious than SSDT's:** it treats every type change as
+    dangerous, widenings included. Going from `varchar(400)` to `varchar(800)` cannot lose
+    anything and SSDT does not flag it, but Schemir stops the script.
+  - A `UNIQUE` *constraint* is read as a unique *index*, so Schemir emits it as a separate
+    `CREATE UNIQUE INDEX` where SSDT folds it into the `CREATE TABLE`. Same end state,
+    different shape of script.
+  Not a defect, just a different strategy: for a table whose columns change, **SSDT rebuilds
+  the whole table** (temp table, `IDENTITY_INSERT`, copy, drop, rename) and therefore also
+  drops and recreates every foreign key pointing at it, while Schemir emits in-place `ALTER`
+  statements — four, against SSDT's ~90 lines. Schemir's script is far smaller; SSDT's
+  survives changes that `ALTER` cannot express.
 - **Large tables:** data comparison currently loads up to **100k rows** into memory. Comparing
   tables with **millions of rows** is planned via **streaming comparison by primary key + row
   hashing** (constant memory, minimal data transfer) — schema comparison is unaffected.

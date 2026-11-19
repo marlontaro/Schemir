@@ -112,6 +112,13 @@ impl Identity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ForeignKey {
     pub name: String,
+    /// `true` cuando el nombre lo puso el motor y no una persona. SQL Server
+    /// bautiza solo las restricciones declaradas sin `CONSTRAINT <nombre>` y les
+    /// pega un sufijo distinto en cada base, así que ese nombre no sirve para
+    /// emparejar: ver `pair_objects` en `diff`. En PostgreSQL y MySQL los
+    /// nombres automáticos son deterministas y aquí queda en `false`.
+    #[serde(default)]
+    pub system_named: bool,
     /// Tabla que contiene la FK, calificada ("schema.tabla").
     pub from_table: String,
     pub from_columns: Vec<String>,
@@ -124,6 +131,13 @@ pub struct ForeignKey {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Index {
     pub name: String,
+    /// `true` cuando el nombre lo puso el motor y no una persona. SQL Server
+    /// bautiza solo las restricciones declaradas sin `CONSTRAINT <nombre>` y les
+    /// pega un sufijo distinto en cada base, así que ese nombre no sirve para
+    /// emparejar: ver `pair_objects` en `diff`. En PostgreSQL y MySQL los
+    /// nombres automáticos son deterministas y aquí queda en `false`.
+    #[serde(default)]
+    pub system_named: bool,
     /// Tabla del índice, calificada ("schema.tabla").
     pub table: String,
     pub columns: Vec<String>,
@@ -134,6 +148,13 @@ pub struct Index {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckConstraint {
     pub name: String,
+    /// `true` cuando el nombre lo puso el motor y no una persona. SQL Server
+    /// bautiza solo las restricciones declaradas sin `CONSTRAINT <nombre>` y les
+    /// pega un sufijo distinto en cada base, así que ese nombre no sirve para
+    /// emparejar: ver `pair_objects` en `diff`. En PostgreSQL y MySQL los
+    /// nombres automáticos son deterministas y aquí queda en `false`.
+    #[serde(default)]
+    pub system_named: bool,
     pub table: String,
     /// Expresión de la restricción.
     pub definition: String,
@@ -165,6 +186,14 @@ pub struct Routine {
     pub kind: RoutineKind,
     /// Cuerpo SQL completo del objeto (tal como lo devuelve el catálogo).
     pub definition: String,
+    /// Nombres calificados de los objetos que este módulo referencia: las
+    /// tablas de las que lee y los otros módulos que invoca.
+    ///
+    /// Sirve para saber a quién le quedan los metadatos viejos cuando una tabla
+    /// cambia de forma. Hoy solo lo llena el lector de SQL Server, que es el
+    /// único motor donde hace falta refrescarlos; en los demás queda vacío.
+    #[serde(default)]
+    pub references: Vec<String>,
 }
 
 impl Routine {

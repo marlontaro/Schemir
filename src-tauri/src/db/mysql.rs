@@ -64,6 +64,21 @@ async fn connect(cfg: &ConnectionConfig) -> DbResult<Conn> {
 }
 
 /// Prueba la conexión y devuelve la versión del servidor.
+/// Lista las bases del servidor, sin las del sistema. En MySQL el esquema ES la
+/// base de datos, así que esta lista es exactamente lo que se compara.
+pub async fn list_databases(cfg: &ConnectionConfig) -> DbResult<Vec<String>> {
+    use mysql_async::prelude::Queryable;
+    let mut conn = connect(&ConnectionConfig { database: String::new(), ..cfg.clone() }).await?;
+    let filas: Vec<String> = conn
+        .query(
+            "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA \
+             WHERE SCHEMA_NAME NOT IN ('information_schema','mysql','performance_schema','sys') \
+             ORDER BY SCHEMA_NAME",
+        )
+        .await?;
+    Ok(filas)
+}
+
 pub async fn test_connection(cfg: &ConnectionConfig) -> DbResult<String> {
     let mut conn = connect(cfg).await?;
     let version: String = conn
@@ -291,7 +306,7 @@ async fn read_views(conn: &mut Conn) -> DbResult<Vec<Routine>> {
         .map(|(schema, name, def)| {
             let body = def.unwrap_or_default();
             let definition = format!("CREATE OR REPLACE VIEW {} AS {body}", qname(&schema, &name));
-            Routine { schema, name, kind: RoutineKind::View, definition }
+            Routine { schema, name, kind: RoutineKind::View, definition, references: vec![] }
         })
         .collect())
 }
@@ -365,9 +380,9 @@ async fn read_routines(conn: &mut Conn) -> DbResult<(Vec<Routine>, Vec<Routine>)
         def.push_str(body.unwrap_or_default().trim());
 
         if is_function {
-            functions.push(Routine { schema, name, kind: RoutineKind::ScalarFunction, definition: def });
+            functions.push(Routine { schema, name, kind: RoutineKind::ScalarFunction, definition: def, references: vec![] });
         } else {
-            procedures.push(Routine { schema, name, kind: RoutineKind::Procedure, definition: def });
+            procedures.push(Routine { schema, name, kind: RoutineKind::Procedure, definition: def, references: vec![] });
         }
     }
     Ok((procedures, functions))
@@ -399,7 +414,10 @@ async fn read_foreign_keys(conn: &mut Conn) -> DbResult<Vec<ForeignKey>> {
             map.insert(
                 name.clone(),
                 ForeignKey {
+                    // MySQL deriva el nombre automático de la tabla y un número
+                    // (`pedidos_ibfk_1`): sale igual en las dos bases.
                     name: name.clone(),
+                    system_named: false,
                     from_table: format!("{from_schema}.{from_table}"),
                     from_columns: Vec::new(),
                     to_table: format!("{to_schema}.{to_table}"),
@@ -446,6 +464,7 @@ async fn read_indexes(conn: &mut Conn) -> DbResult<Vec<Index>> {
                 key.clone(),
                 Index {
                     name: iname.clone(),
+                    system_named: false,
                     table: format!("{schema}.{table}"),
                     columns: Vec::new(),
                     is_unique: non_unique == 0,
@@ -488,6 +507,7 @@ async fn read_checks(conn: &mut Conn) -> DbResult<Vec<CheckConstraint>> {
         .into_iter()
         .map(|(schema, table, name, definition)| CheckConstraint {
             name,
+            system_named: false,
             table: format!("{schema}.{table}"),
             definition,
         })

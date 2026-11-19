@@ -19,7 +19,10 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 
 # --- SQL Server ---
-tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls"] }
+# `winauth` habilita AuthMethod::Integrated (autenticación de Windows). Es una
+# dependencia opcional y SOLO de cfg(windows) dentro de tiberius, así que
+# encenderla aquí no añade nada al build de macOS ni de Linux.
+tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "winauth"] }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 
@@ -35,3 +38,12 @@ native-tls = "0.2"
 # minimal-rust = compresión en Rust puro (sin zlib del sistema); native-tls-tls
 # reutiliza el mismo TLS que PostgreSQL.
 mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust", "native-tls-tls"] }
+
+# --- SQL Server por ODBC ---
+# Es como se conecta SSMS: el controlador de Microsoft habla memoria compartida,
+# canalizaciones con nombre Y TCP, y resuelve por sí solo la autenticación de
+# Windows, así que no hace falta que el servidor tenga TCP/IP habilitado.
+# Va en un target de Windows porque ese controlador solo existe ahí; en macOS y
+# Linux la dependencia ni se descarga y queda el camino de tiberius por TCP.
+[target."cfg(windows)".dependencies]
+odbc-api = "30"

@@ -164,7 +164,10 @@ fn read_foreign_keys(conn: &Connection, tables: &[Table]) -> DbResult<Vec<Foreig
         let mut by_id: BTreeMap<i64, ForeignKey> = BTreeMap::new();
         for (id, ref_table, from_col, to_col) in rows {
             let fk = by_id.entry(id).or_insert_with(|| ForeignKey {
+                // El nombre lo arma Schemir a partir de la tabla y el id que da
+                // `PRAGMA foreign_key_list`, así que es igual en las dos bases.
                 name: format!("fk_{}_{id}", t.name),
+                system_named: false,
                 from_table: format!("main.{}", t.name),
                 from_columns: Vec::new(),
                 to_table: format!("main.{ref_table}"),
@@ -211,6 +214,7 @@ fn read_indexes(conn: &Connection, tables: &[Table]) -> DbResult<Vec<Index>> {
                 .collect();
             out.push(Index {
                 name: iname,
+                system_named: false,
                 table: format!("main.{}", t.name),
                 columns: cols,
                 is_unique: uniq != 0,
@@ -228,6 +232,7 @@ fn read_views(conn: &Connection) -> DbResult<Vec<Routine>> {
     let views = stmt
         .query_map([], |row| {
             Ok(Routine {
+                references: vec![],
                 schema: "main".to_string(),
                 name: row.get("name")?,
                 kind: RoutineKind::View,
