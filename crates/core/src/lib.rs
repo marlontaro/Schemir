@@ -11,9 +11,11 @@ pub mod diagram;
 pub mod diff;
 pub mod model;
 pub mod script;
+pub mod types;
 
 pub use data::*;
 pub use diagram::*;
 pub use diff::*;
 pub use model::*;
 pub use script::*;
+pub use types::*;

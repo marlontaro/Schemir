@@ -14,7 +14,12 @@ use crate::diff::{
 use crate::model::{CheckConstraint, Column, ForeignKey, Identity, Index, Routine, RoutineKind, Schema, Table, Trigger};
 
 /// Dialecto SQL del destino (determina el entrecomillado y la sintaxis).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Los nombres serializados son los que usa la interfaz en sus desplegables
+/// (`sqlserver`, `postgres`, `mysql`, `sqlite`), para que el dialecto elegido
+/// llegue tal cual a los comandos que lo reciben.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Dialect {
     SqlServer,
     Sqlite,

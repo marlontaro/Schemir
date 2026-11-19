@@ -4,9 +4,11 @@
 mod db;
 
 use schemir_core::{
-    compare_schemas_opts, compare_table_data, generate_sync_script_opts, generate_sync_units_opts,
+    compare_schemas_opts, compare_table_data, data_types, default_schema, default_version,
+    engine_versions, generate_sync_script_opts, generate_sync_units_opts, identity_suffix,
+    identity_types, supports_schemas, uuid_default, uuid_types,
     to_diagram_model, to_diff_diagram_opts, CompareOptions, ComparisonResult, DataComparison,
-    Dialect, DiagramModel, ScriptUnit,
+    DataType, Dialect, DiagramModel, ScriptUnit, Version,
 };
 use db::{ConnectionConfig, EngineKind};
 use serde::Serialize;
@@ -21,6 +23,46 @@ struct CompareOutput {
     diagram_a: DiagramModel,
     diagram_b: DiagramModel,
     diagram_diff: DiagramModel,
+}
+
+/// Todo lo que el diseñador necesita saber de un motor: sus tipos de datos, las
+/// versiones entre las que se puede elegir y si agrupa las tablas en esquemas.
+///
+/// Va en una sola respuesta porque la interfaz lo pide de golpe cada vez que se
+/// cambia de dialecto, y así no hay tres idas y vueltas para pintar un
+/// desplegable.
+#[derive(Serialize)]
+struct DialectInfo {
+    types: Vec<DataType>,
+    versions: Vec<Version>,
+    default_version: Version,
+    supports_schemas: bool,
+    default_schema: String,
+    /// Tipos a los que se les puede poner un contador, y lo que se escribe para
+    /// declararlo.
+    identity_types: Vec<String>,
+    identity_suffix: String,
+    /// Tipos a los que el motor sabe generarles un identificador único, y la
+    /// expresión que lo genera (vacía si el motor no trae ninguna).
+    uuid_types: Vec<String>,
+    uuid_default: String,
+}
+
+/// El catálogo de un motor. No toca ninguna base de datos: es conocimiento que
+/// vive en el núcleo.
+#[tauri::command]
+fn dialect_info(dialect: Dialect) -> DialectInfo {
+    DialectInfo {
+        types: data_types(dialect),
+        versions: engine_versions(dialect),
+        default_version: default_version(dialect),
+        supports_schemas: supports_schemas(dialect),
+        default_schema: default_schema(dialect).to_string(),
+        identity_types: identity_types(dialect).into_iter().map(String::from).collect(),
+        identity_suffix: identity_suffix(dialect).to_string(),
+        uuid_types: uuid_types(dialect).into_iter().map(String::from).collect(),
+        uuid_default: uuid_default(dialect).unwrap_or("").to_string(),
+    }
 }
 
 fn dialect_of(engine: EngineKind) -> Dialect {
@@ -129,7 +171,8 @@ fn main() {
             save_binary_file,
             read_text_file,
             apply_script,
-            compare_data
+            compare_data,
+            dialect_info
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar Schemir");

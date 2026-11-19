@@ -7,3 +7,7 @@ license.workspace = true
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# Solo para la prueba que fija el JSON que la interfaz recibe del catalogo.
+serde_json = "1"
