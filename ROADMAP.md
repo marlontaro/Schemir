@@ -103,6 +103,17 @@ _Última actualización: noviembre 2026._
   identificadora. El nombre por defecto se lee como una frase: `fkUserroleHasUser`. Si la
   hija ya tiene esa columna se usa la suya y no se le toca el tipo, y nada se crea hasta
   que se acepta el diálogo: cancelar no deja columnas sueltas.
+- **La clave compuesta migra entera:** la relación se lleva TODAS las columnas de la clave
+  del padre y no una, porque son la misma clave vista desde la hija y partirla no
+  significa nada. El diálogo enseña una fila por columna y la foránea sale
+  `FOREIGN KEY (a, b) REFERENCES t (a, b)`. Arrastrando de una columna que NO es parte de
+  la clave migra solo esa. La relación identifica a la hija cuando la clave ENTERA entra
+  en su primaria: con una parte dentro y otra fuera la fila todavía necesita algo más, y
+  eso no es identificar.
+- **La tarjeta se estira también a lo alto.** Con un alto puesto, la lista de columnas se
+  desplaza dentro y la clave primaria se queda siempre a la vista: una tabla de treinta
+  columnas cabe en la caja que uno le dé en vez de taparlo todo. Doble clic en la esquina
+  y vuelve a su tamaño natural. El alto viaja en el XML como el ancho.
 - **La entidad del lienzo es una vista, no un formulario**, como en ERwin: la clave
   primaria en el compartimento de arriba separada por una línea, marcas `(FK)`, y esquinas
   redondeadas cuando la entidad depende de otra para identificarse. **Doble clic** abre el

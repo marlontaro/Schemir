@@ -465,6 +465,9 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .dz-table {
   position: absolute; z-index: 1; width: 300px; min-width: 180px; background: var(--surface);
   border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-sm); overflow: hidden;
+  /* En columna para que, cuando el usuario le fija un alto, la cabecera se
+     quede quieta y lo que se desplace sea la lista de columnas. */
+  display: flex; flex-direction: column;
 }
 .dz-head { display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 10px; background: var(--surface-2); cursor: grab; border-bottom: 1px solid var(--border); }
 .dz-head.dragging { cursor: grabbing; }
@@ -474,6 +477,15 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .dz-icon-btn { border: 0; background: transparent; color: var(--muted); cursor: pointer; width: 22px; height: 22px; border-radius: 6px; font-size: 14px; line-height: 1; display: grid; place-items: center; }
 .dz-icon-btn:hover { background: var(--surface-3); color: var(--diff); }
 .dz-cols { list-style: none; margin: 0; padding: 4px; display: flex; flex-direction: column; gap: 2px; }
+/* Solo las listas de la TARJETA, no la del editor, que vive en un diálogo con
+   su propio desplazamiento. `min-height: 0` porque sin eso un hijo flexible no
+   se encoge por debajo de su contenido y el alto de la tarjeta no serviría de
+   nada. Sin alto fijado no hay desbordamiento y no aparece ninguna barra. */
+.dz-table > .dz-cols { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* La clave primaria no cede: es lo que dice de qué fila se habla, así que quien
+   se encoge es la lista de abajo. El tope de la mitad de la tarjeta es para que
+   una clave de ocho columnas no se quede ella con todo. */
+.dz-table > .dz-cols.dz-pk-box { flex: 0 0 auto; max-height: 50%; }
 .dz-col { display: flex; align-items: center; gap: 4px; padding: 2px 2px; }
 .dz-col input[type="text"] { width: auto; padding: 4px 6px; font-size: 12px; border-radius: 6px; }
 .dz-col .dz-c-name { flex: 1.3; min-width: 52px; }
@@ -561,7 +573,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .dz-move:hover { color: var(--accent); }
 .dz-head.dragging .dz-move { cursor: grabbing; }
 .dz-resize {
-  position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: ew-resize;
+  position: absolute; right: 0; bottom: 0; z-index: 2; width: 14px; height: 14px; cursor: nwse-resize;
   background: linear-gradient(135deg, transparent 50%, var(--border) 50%, var(--border) 70%, transparent 70%);
 }
 .dz-resize:hover { background: linear-gradient(135deg, transparent 50%, var(--accent) 50%, var(--accent) 70%, transparent 70%); }
@@ -582,10 +594,16 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 }
 .dz-schema-ro { font-size: 10.5px; color: var(--muted-2); flex: 0 0 auto; }
 .dz-ro { display: flex; align-items: center; gap: 6px; padding: 3px 6px; font-size: 12px; }
-.dz-ro-name { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* `flex: 1 1 auto` y no `flex: 1`: con la base en 0 el nombre se quedaba sin
+   ancho en cuanto el tipo era largo ("uniqueidentifier · NEWSEQUENTIALID") y la
+   fila mostraba el tipo entero y del nombre una letra. El nombre es lo que
+   identifica la fila, así que se mide por su contenido y el tipo cede. */
+.dz-ro-name { flex: 1 1 auto; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dz-ro-key { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; color: var(--accent); }
 .dz-ro-type {
-  flex: 0 1 auto; min-width: 0; font-size: 11px; color: var(--muted);
+  /* Nunca más de la mitad larga de la fila: pasado eso se recorta el tipo, que
+     se lee entero en el editor, y no el nombre, que solo está aquí. */
+  flex: 0 1 auto; min-width: 0; max-width: 55%; font-size: 11px; color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .dz-ro-null { flex: 0 0 auto; font-size: 9px; color: var(--muted-2); }

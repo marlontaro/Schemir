@@ -121,6 +121,14 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   foreign key), `NOT NULL`, outside the primary key, so the relationship is
   non-identifying. The default name reads as a sentence: `fkUserroleHasUser`. Nothing is
   created until you accept the dialog.
+- 🗝️ **A composite primary key migrates whole:** the relationship carries every
+  column of the parent's key, not one of them, because they are one key seen from the
+  child and splitting it would mean nothing. The dialog shows a row per column, and the
+  foreign key comes out as `FOREIGN KEY (a, b) REFERENCES t (a, b)`. Drag from a column
+  that is *not* part of the key and only that one migrates.
+- ↕️ **Cards resize both ways.** Give a card a height and its column list scrolls
+  inside it, with the primary key always on top: a thirty-column table fits in the box you
+  give it instead of covering the diagram. Double-click the corner for its natural size.
 - 🗃️ **The entity on the canvas is a view, not a form**, the way ERwin has it:
   primary key in the top compartment above a dividing line, `(FK)` marks, rounded corners
   on an entity that depends on another to identify itself. **Double-click** opens the
