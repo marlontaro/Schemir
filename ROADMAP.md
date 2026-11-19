@@ -110,6 +110,17 @@ _Última actualización: noviembre 2026._
   la clave migra solo esa. La relación identifica a la hija cuando la clave ENTERA entra
   en su primaria: con una parte dentro y otra fuera la fila todavía necesita algo más, y
   eso no es identificar.
+- **Si cambia la clave del padre, la foránea la sigue:** la primaria del padre y la que
+  migró a la hija son la misma clave vista dos veces, así que meter o sacar una columna de
+  la primaria mueve la foránea con ella —la que entra baja a la hija con su tipo, la que
+  sale deja de ser foránea, y reordenar la clave reordena el `FOREIGN KEY (a, b)`—. Lo que
+  sale de la clave NO se borra de la hija: la columna sigue ahí con sus datos. Se respetan
+  las relaciones puestas a propósito sobre otra columna, y las de una tabla consigo misma,
+  donde no hay respuesta automática que valga. Si el padre se queda sin clave ninguna no se
+  toca nada, porque eso casi siempre es un paso intermedio mientras se edita.
+- **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
+  la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
+  La relación que se queda sin ningún par se va con ellos.
 - **La tarjeta se estira también a lo alto.** Con un alto puesto, la lista de columnas se
   desplaza dentro y la clave primaria se queda siempre a la vista: una tabla de treinta
   columnas cabe en la caja que uno le dé en vez de taparlo todo. Doble clic en la esquina

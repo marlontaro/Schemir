@@ -2563,6 +2563,84 @@ function renameColInRelations(tbl, antes, ahora) {
   }
 }
 
+/** Los nombres de las columnas que forman la clave primaria, EN SU ORDEN, que
+ *  es el que sale en el `FOREIGN KEY (a, b)` y no da igual. */
+function pkNames(tbl) {
+  return tbl.columns.filter((c) => c.pk).map((c) => c.name);
+}
+
+/** Quita de las relaciones una columna que se acaba de borrar.
+ *
+ *  Sin esto la relación seguía nombrando una columna que ya no existe: la marca
+ *  (FK) se perdía y el script salía con una clave foránea sobre un nombre
+ *  inventado. La relación que se queda sin ningún par se va con ellos, porque
+ *  una clave foránea sin columnas no es nada. */
+function dropColFromRelations(tbl, nombre) {
+  for (const r of design.relations) {
+    r.cols = r.cols.filter(
+      (p) => !((r.fromTable === tbl.id && p.from === nombre) || (r.toTable === tbl.id && p.to === nombre))
+    );
+  }
+  design.relations = design.relations.filter((r) => r.cols.length);
+}
+
+function mismoConjunto(a, b) {
+  return a.length === b.length && a.every((x) => b.includes(x));
+}
+
+/** Pone al día las relaciones que heredaban la clave primaria de `padre`
+ *  después de que esa clave haya cambiado.
+ *
+ *  En ERwin la clave del padre y la que migró a la hija son la misma clave
+ *  vista dos veces, así que meter o sacar una columna de la primaria tiene que
+ *  mover la foránea con ella. Si no, el modelo dice dos cosas distintas y el
+ *  script sale apuntando a columnas que ya no son clave de nadie, que es
+ *  justamente lo que el motor rechaza.
+ *
+ *  Solo se tocan las relaciones que heredaban ESA clave —las que apuntaban
+ *  exactamente a las columnas que eran la primaria—; una que señale a propósito
+ *  otra columna del padre la puso el usuario y se queda como está. Las que una
+ *  tabla se hace a sí misma tampoco: ahí el nombre de la columna de la hija no
+ *  puede ser el mismo que el del padre y no hay respuesta automática que valga.
+ *
+ *  Lo que sale de la clave no se borra de la hija: la columna sigue ahí con sus
+ *  datos, solo deja de ser foránea. Y si el padre se queda sin clave ninguna no
+ *  se toca nada, porque eso es casi siempre un paso intermedio mientras se
+ *  edita y no la intención. */
+function resyncRelations(padre, pkAntes) {
+  const pkAhora = pkNames(padre);
+  if (!pkAhora.length) return false;
+  if (pkAntes.join("\u0000") === pkAhora.join("\u0000")) return false;
+  let cambio = false;
+  for (const r of design.relations) {
+    if (r.toTable !== padre.id || r.fromTable === r.toTable) continue;
+    if (!mismoConjunto(r.cols.map((p) => p.to), pkAntes)) continue;
+    const hija = dzTableById(r.fromTable);
+    if (!hija) continue;
+    r.cols = pkAhora.map((nombre) => {
+      // La columna que ya estaba conserva el nombre que tenga en la hija: puede
+      // no ser el del padre y es decisión del usuario.
+      const ya = r.cols.find((p) => p.to === nombre);
+      if (ya) return ya;
+      migrateKeyColumn(hija, nombre, padre.columns.find((c) => c.name === nombre));
+      return { from: nombre, to: nombre };
+    });
+    cambio = true;
+  }
+  return cambio;
+}
+
+/** Hace un cambio que puede mover la clave primaria de `tbl` y deja detrás las
+ *  relaciones al día. Las dos cosas que la mueven —marcar PK y reordenar las
+ *  columnas— pasan por aquí para que ninguna se olvide. */
+function withPkSync(tbl, hacer) {
+  const antes = pkNames(tbl);
+  hacer();
+  resyncRelations(tbl, antes);
+  saveDesign();
+  renderDesigner();
+}
+
 /** Una fila del EDITOR: aquí sí se escribe. La tarjeta del lienzo no usa esto.
  *
  *  En ERwin la entidad del diagrama es una vista y se edita en su propio
@@ -2588,10 +2666,12 @@ function buildColRow(tbl, col, idx) {
   const mover = (delta) => {
     const destino = idx + delta;
     if (destino < 0 || destino >= tbl.columns.length) return;
-    const [c] = tbl.columns.splice(idx, 1);
-    tbl.columns.splice(destino, 0, c);
-    saveDesign();
-    renderDesigner();
+    // Por `withPkSync` porque mover una columna de la clave cambia el ORDEN de
+    // la primaria, y ese es el orden del `FOREIGN KEY (a, b)`.
+    withPkSync(tbl, () => {
+      const [c] = tbl.columns.splice(idx, 1);
+      tbl.columns.splice(destino, 0, c);
+    });
   };
   const subir = document.createElement("button");
   subir.type = "button";
@@ -2614,7 +2694,11 @@ function buildColRow(tbl, col, idx) {
   del.textContent = "✕";
   del.title = t("dz.delCol");
   del.addEventListener("click", () => {
-    tbl.columns.splice(idx, 1);
+    const [ido] = tbl.columns.splice(idx, 1);
+    // Aquí no hace falta resincronizar: quitando una columna de la clave no
+    // aparece ninguna nueva que migrar, y los pares que la nombraban se van con
+    // ella, que es exactamente la clave que queda.
+    dropColFromRelations(tbl, ido.name);
     saveDesign();
     renderDesigner();
   });
@@ -2623,7 +2707,7 @@ function buildColRow(tbl, col, idx) {
     name,
     buildTypeCell(col),
     buildAutoCell(col),
-    flagLabel("PK", col.pk, (v) => { col.pk = v; saveDesign(); renderDesigner(); }),
+    flagLabel("PK", col.pk, (v) => withPkSync(tbl, () => { col.pk = v; })),
     flagLabel("NN", col.nn, (v) => { col.nn = v; saveDesign(); renderCanvasKeepingEditor(); }),
     subir,
     bajar,

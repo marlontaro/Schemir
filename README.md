@@ -126,6 +126,13 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   child and splitting it would mean nothing. The dialog shows a row per column, and the
   foreign key comes out as `FOREIGN KEY (a, b) REFERENCES t (a, b)`. Drag from a column
   that is *not* part of the key and only that one migrates.
+- 🔁 **Change the parent's key and the key follows:** the parent's primary key and
+  the one that migrated to the child are the same key seen twice, so moving a column into
+  or out of the primary key moves the foreign key with it — a new one migrates down with
+  its type, one that leaves stops being foreign, and reordering the key reorders
+  `FOREIGN KEY (a, b)`. A column that leaves the key is never deleted from the child: it
+  keeps its data. Relationships you pointed at some other column on purpose are left
+  alone, and so is a table that references itself, where no automatic answer would do.
 - ↕️ **Cards resize both ways.** Give a card a height and its column list scrolls
   inside it, with the primary key always on top: a thirty-column table fits in the box you
   give it instead of covering the diagram. Double-click the corner for its natural size.
