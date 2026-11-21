@@ -133,6 +133,10 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   `FOREIGN KEY (a, b)`. A column that leaves the key is never deleted from the child: it
   keeps its data. Relationships you pointed at some other column on purpose are left
   alone, and so is a table that references itself, where no automatic answer would do.
+- 🎨 **Colour your tables**, the way ERwin does, to group what belongs together. The
+  model stores the *name* of the colour, not the pixel: a `#1b5e20` picked on a white
+  canvas is black-on-black the moment you switch to the dark theme, so each theme tints
+  its own surface with that hue instead. The tree shows the same dot as the card.
 - 🧰 **A palette: pick the kind first, then drag.** Identifying, non-identifying or
   many-to-many, chosen before you draw, the way ERwin does it. Identifying puts the
   migrated key *inside* the child's primary key — solid line, rounded corners — and

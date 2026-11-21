@@ -26,6 +26,15 @@ const I18N = {
     "dz.empty": "Añade una tabla para empezar tu modelo.",
     "dz.relations": "Relaciones (claves foráneas)",
     "dz.treeHead": "Modelo",
+    "dz.color": "Color",
+    "dz.cNone": "sin color",
+    "dz.cBlue": "azul",
+    "dz.cCyan": "cian",
+    "dz.cGreen": "verde",
+    "dz.cAmber": "ámbar",
+    "dz.cRed": "rojo",
+    "dz.cViolet": "violeta",
+    "dz.cGray": "gris",
     "dz.toolSelect": "Seleccionar",
     "dz.toolTable": "Tabla nueva · pulsa en el lienzo",
     "dz.toolIdent": "Relación identificadora · la clave entra en la primaria de la hija",
@@ -261,6 +270,15 @@ const I18N = {
     "dz.empty": "Add a table to start your model.",
     "dz.relations": "Relations (foreign keys)",
     "dz.treeHead": "Model",
+    "dz.color": "Colour",
+    "dz.cNone": "no colour",
+    "dz.cBlue": "blue",
+    "dz.cCyan": "cyan",
+    "dz.cGreen": "green",
+    "dz.cAmber": "amber",
+    "dz.cRed": "red",
+    "dz.cViolet": "violet",
+    "dz.cGray": "grey",
     "dz.toolSelect": "Select",
     "dz.toolTable": "New table · click on the canvas",
     "dz.toolIdent": "Identifying relationship · the key joins the child’s primary key",
@@ -2037,6 +2055,7 @@ function migrateDesign(d) {
   if (!Array.isArray(d.schemas)) d.schemas = [];
   for (const tbl of d.tables) {
     if (typeof tbl.schema !== "string") tbl.schema = "";
+    if (typeof tbl.color !== "string") tbl.color = "";
     tbl.columns = tbl.columns || [];
     for (const col of tbl.columns) {
       if (col.a === undefined && col.b === undefined) Object.assign(col, splitType(col.type));
@@ -2829,6 +2848,7 @@ function buildDesignCard(tbl) {
   const card = document.createElement("div");
   card.className = "dz-table" + (tableIsDependent(tbl) ? " dependiente" : "");
   card.dataset.id = tbl.id;
+  if (tbl.color) card.dataset.color = tbl.color;
   card.style.left = (tbl.x || 20) + "px";
   card.style.top = (tbl.y || 20) + "px";
   // El tamaño es del usuario: lo ajusta tirando de la esquina y se guarda. Sin
@@ -3004,6 +3024,38 @@ function openTableEditor(tbl) {
     lblEsq.append(spEsq, selEsq);
     arriba.appendChild(lblEsq);
   }
+  // El color de la tabla, junto al nombre y al esquema: es una propiedad de la
+  // tabla como las otras dos y aquí es donde se buscan.
+  const lblColor = document.createElement("label");
+  lblColor.className = "dz-color-pick";
+  const spColor = document.createElement("span");
+  spColor.textContent = t("dz.color");
+  const muestras = document.createElement("div");
+  muestras.className = "dz-colors";
+  const marcar = () => {
+    muestras.querySelectorAll(".dz-swatch").forEach((b) => {
+      b.classList.toggle("active", (tbl.color || "") === b.dataset.color);
+    });
+  };
+  for (const c of DZ_COLORS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "dz-swatch";
+    b.dataset.color = c.id;
+    b.title = t(c.key);
+    b.addEventListener("click", () => {
+      tbl.color = c.id;
+      saveDesign();
+      marcar();
+      // Sin rehacer las filas del editor: solo cambió el color de la caja.
+      renderCanvasKeepingEditor();
+    });
+    muestras.appendChild(b);
+  }
+  marcar();
+  lblColor.append(spColor, muestras);
+  arriba.appendChild(lblColor);
+
   body.appendChild(arriba);
 
   // La cabecera de la rejilla. Va fuera de la lista para que no se desplace con
@@ -3605,6 +3657,25 @@ function drawDesignEdges() {
   }
 }
 
+/** Los colores que puede llevar una tabla.
+ *
+ *  Una lista cerrada y no un selector de color libre, y lo que se guarda es el
+ *  NOMBRE y no el píxel. Con dos temas, un `#1b5e20` elegido sobre fondo blanco
+ *  es texto negro sobre negro al pasar a oscuro; guardando «verde», cada tema
+ *  lo tinñe sobre su propia superficie y se lee en los dos. Que la lista sea
+ *  corta también es a propósito: el color de un diagrama sirve para agrupar, y
+ *  dieciocho verdes distintos no agrupan nada. */
+const DZ_COLORS = [
+  { id: "", key: "dz.cNone" },
+  { id: "blue", key: "dz.cBlue" },
+  { id: "cyan", key: "dz.cCyan" },
+  { id: "green", key: "dz.cGreen" },
+  { id: "amber", key: "dz.cAmber" },
+  { id: "red", key: "dz.cRed" },
+  { id: "violet", key: "dz.cViolet" },
+  { id: "gray", key: "dz.cGray" },
+];
+
 /** La herramienta elegida en la paleta. Con `select` el lienzo se comporta
  *  como siempre: se arrastran las tablas y se tira de las agarraderas. */
 let dzTool = "select";
@@ -3708,9 +3779,17 @@ function treeGroup(ul, clave, label, n, hijos) {
 const dzTreeOpen = {};
 
 /** Una hoja del árbol: un objeto del modelo. */
-function treeItem(sub, kind, id, texto, onAbrir, onBorrar) {
+function treeItem(sub, kind, id, texto, onAbrir, onBorrar, color) {
   const li = document.createElement("li");
   li.className = "dz-tr-item" + (dzSelEs(kind, id) ? " sel" : "");
+  if (color) {
+    // El mismo punto que la tarjeta: el árbol y el lienzo tienen que agrupar
+    // igual, o el color sirve en un sitio y estorba en el otro.
+    const pt = document.createElement("span");
+    pt.className = "dz-tr-dot";
+    pt.dataset.color = color;
+    li.appendChild(pt);
+  }
   const txt = document.createElement("span");
   txt.className = "dz-tr-txt";
   txt.textContent = texto;
@@ -3751,7 +3830,7 @@ function renderTree() {
         if (dzSelEs("table", tbl.id)) dzSel = null;
         saveDesign();
         renderDesigner();
-      });
+      }, tbl.color);
     }
   });
 
@@ -4130,7 +4209,7 @@ function designToXml() {
 
   out += "  <tables>\n";
   for (const tbl of design.tables) {
-    out += `    <table${at("name", tbl.name)}${at("schema", tbl.schema)}${at("x", tbl.x)}${at("y", tbl.y)}${at("w", tbl.w)}${at("h", tbl.h)}>\n`;
+    out += `    <table${at("name", tbl.name)}${at("schema", tbl.schema)}${at("color", tbl.color)}${at("x", tbl.x)}${at("y", tbl.y)}${at("w", tbl.w)}${at("h", tbl.h)}>\n`;
     for (const c of tbl.columns) {
       out += `      <column${at("name", c.name)}${at("type", fullType(c))}${at("auto", c.auto)}${c.pk ? ' pk="true"' : ""}${c.nn ? ' nn="true"' : ""} />\n`;
     }
@@ -4197,6 +4276,7 @@ function xmlToDesign(texto) {
       id: "t" + d.seq++,
       name: te.getAttribute("name") || "tabla",
       schema: te.getAttribute("schema") || "",
+      color: te.getAttribute("color") || "",
       x: Number(te.getAttribute("x")) || 20,
       y: Number(te.getAttribute("y")) || 20,
       w: Number(te.getAttribute("w")) || 0,

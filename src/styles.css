@@ -537,6 +537,54 @@ body.dz-full #design-output {
   margin: 0; pointer-events: none;
 }
 
+/* ── El color de una tabla ───────────────────────────────────────────────────
+   Un solo juego de tonos para los dos temas. El tono se mezcla con
+   `--surface`, que ya cambia con el tema, así que en oscuro sale una
+   superficie oscura teñida y en claro una pálida: el texto se lee en los dos
+   sin escribir la paleta dos veces ni arriesgarse a un contraste imposible.
+   La cabecera lleva la carga y el cuerpo un velo, porque un relleno saturado
+   detrás de quince líneas de texto no se lee en ningún tema. */
+.dz-table[data-color="blue"],   .dz-swatch[data-color="blue"],   .dz-tr-dot[data-color="blue"]   { --tbl: #60a5fa; }
+.dz-table[data-color="cyan"],   .dz-swatch[data-color="cyan"],   .dz-tr-dot[data-color="cyan"]   { --tbl: #22d3ee; }
+.dz-table[data-color="green"],  .dz-swatch[data-color="green"],  .dz-tr-dot[data-color="green"]  { --tbl: #4ade80; }
+.dz-table[data-color="amber"],  .dz-swatch[data-color="amber"],  .dz-tr-dot[data-color="amber"]  { --tbl: #fbbf24; }
+.dz-table[data-color="red"],    .dz-swatch[data-color="red"],    .dz-tr-dot[data-color="red"]    { --tbl: #fb7185; }
+.dz-table[data-color="violet"], .dz-swatch[data-color="violet"], .dz-tr-dot[data-color="violet"] { --tbl: #a78bfa; }
+.dz-table[data-color="gray"],   .dz-swatch[data-color="gray"],   .dz-tr-dot[data-color="gray"]   { --tbl: #94a3b8; }
+
+.dz-table[data-color] {
+  background: color-mix(in oklab, var(--tbl) 8%, var(--surface));
+  border-color: color-mix(in oklab, var(--tbl) 50%, var(--border));
+}
+.dz-table[data-color] > .dz-head {
+  background: color-mix(in oklab, var(--tbl) 26%, var(--surface-2));
+  border-bottom-color: color-mix(in oklab, var(--tbl) 45%, var(--border));
+}
+.dz-table[data-color] > .dz-cols.dz-pk-box { border-bottom-color: color-mix(in oklab, var(--tbl) 40%, var(--border)); }
+
+.dz-color-pick { flex: 0 0 auto; }
+.dz-colors { display: flex; gap: 4px; align-items: center; }
+.dz-swatch {
+  width: 20px; height: 20px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--tbl, var(--surface-2)) 55%, var(--surface));
+}
+/* El «sin color» se dibuja tachado: un hueco vacío entre siete colores se lee
+   como un color más, y entonces no se sabe cuál quita el que hay puesto. */
+.dz-swatch[data-color=""] {
+  background:
+    linear-gradient(to top right, transparent calc(50% - 1px), var(--muted-2) calc(50% - 1px),
+      var(--muted-2) calc(50% + 1px), transparent calc(50% + 1px)),
+    var(--surface-2);
+}
+.dz-swatch:hover { border-color: var(--muted); }
+.dz-swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px var(--surface-3); }
+
+.dz-tr-dot {
+  flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; margin-left: -11px; margin-right: 4px;
+  background: var(--tbl, transparent);
+}
+
 /* La paleta: se elige la herramienta y luego se arrastra, como en ERwin.
    Vertical y pegada al lienzo porque no gasta alto, y la barra de arriba ya va
    llena. */

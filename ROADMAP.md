@@ -121,6 +121,13 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **La tabla lleva color**, como las entidades de ERwin, para agrupar lo que va junto. El
+  modelo guarda el NOMBRE del color y no el píxel: un `#1b5e20` elegido sobre fondo blanco
+  es texto negro sobre negro en cuanto se pasa al tema oscuro, así que cada tema tiñe su
+  propia superficie con ese tono y se lee en los dos. La cabecera lleva la carga y el
+  cuerpo un velo, porque un relleno saturado detrás de quince líneas de texto no se lee en
+  ninguno. La lista es corta a propósito: el color sirve para agrupar, y dieciocho verdes
+  distintos no agrupan nada. El árbol enseña el mismo punto que la tarjeta.
 - **La paleta: se elige el tipo antes de arrastrar**, como en ERwin. Identificadora, no
   identificadora o muchos a muchos. La identificadora mete la clave heredada DENTRO de la
   primaria de la hija —línea continua y esquinas redondeadas— y la otra la deja fuera. El
