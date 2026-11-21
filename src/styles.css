@@ -699,6 +699,13 @@ body.dz-full #design-output {
 .dz-grip:hover { opacity: 1; background: var(--accent); }
 .designer-canvas.dz-linking, .designer-canvas.dz-linking .dz-table, .designer-canvas.dz-linking .dz-col { cursor: crosshair; }
 .dz-edges line.dz-rubber { stroke-dasharray: 5 4; stroke-width: 2; opacity: 1; }
+/* La frase verbal. El borde del color del lienzo por debajo del relleno la
+   deja legible cuando cruza una línea; sin él, en un modelo con tráfico no se
+   lee ninguna. */
+.dz-edges .dz-verb {
+  font-size: 10px; fill: var(--muted); stroke: var(--diagram-bg); stroke-width: 3;
+  paint-order: stroke fill; font-family: inherit;
+}
 .dz-edges polyline.dz-no-id { stroke-dasharray: 6 4; }
 .dz-edges marker path { fill: var(--accent); }
 

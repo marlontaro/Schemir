@@ -133,6 +133,11 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   `FOREIGN KEY (a, b)`. A column that leaves the key is never deleted from the child: it
   keeps its data. Relationships you pointed at some other column on purpose are left
   alone, and so is a table that references itself, where no automatic answer would do.
+- 💬 **Verb phrases, so the diagram can be read out loud.** Two per relationship, one
+  each way — «Pedido de venta *contiene* Línea del pedido» and «Línea del pedido *pertenece
+  a* Pedido de venta» — drawn next to the end each one talks about. They show in the
+  logical view, where the tree names a relationship by its sentence instead of by a
+  constraint name that means nothing to the people reading it.
 - 🏷️ **Domains: types with a name.** Define `Codigo = varchar(500)` once and point
   columns at it. Change the domain and every column follows, script included — the domain
   owns the type and the column keeps a copy that is refreshed before anything reads it.

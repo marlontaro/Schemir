@@ -26,6 +26,10 @@ const I18N = {
     "dz.empty": "Añade una tabla para empezar tu modelo.",
     "dz.relations": "Relaciones (claves foráneas)",
     "dz.treeHead": "Modelo",
+    "dz.verb": "Frase del padre a la hija",
+    "dz.verbInv": "Frase de la hija al padre",
+    "dz.verbPh": "contiene",
+    "dz.verbInvPh": "pertenece a",
     "dz.domains": "Dominios",
     "dz.domainNew": "Dominio nuevo",
     "dz.domainTitle": "Dominio",
@@ -286,6 +290,10 @@ const I18N = {
     "dz.empty": "Add a table to start your model.",
     "dz.relations": "Relations (foreign keys)",
     "dz.treeHead": "Model",
+    "dz.verb": "Phrase from parent to child",
+    "dz.verbInv": "Phrase from child to parent",
+    "dz.verbPh": "contains",
+    "dz.verbInvPh": "belongs to",
     "dz.domains": "Domains",
     "dz.domainNew": "New domain",
     "dz.domainTitle": "Domain",
@@ -2107,6 +2115,8 @@ function migrateDesign(d) {
     r.name = r.name || "";
     r.onDelete = r.onDelete || "";
     r.onUpdate = r.onUpdate || "";
+    r.verb = r.verb || "";
+    r.verbInv = r.verbInv || "";
     // Antes una relación era un par suelto de columnas. Ahora es una LISTA de
     // pares, porque una clave foránea puede tener varias columnas. Se normaliza
     // aquí, de una vez, para que ningún otro sitio tenga que mirar las dos
@@ -3612,6 +3622,16 @@ function relKindField(identificadora) {
   };
 }
 
+/** Los dos campos de las frases. Solo en lógico: una frase verbal es del
+ *  modelo de negocio, y en físico el diálogo ya está bastante lleno. */
+function relVerbFields(r) {
+  if (!dzLogical()) return [];
+  return [
+    { key: "verb", label: t("dz.verb"), value: (r && r.verb) || "", placeholder: t("dz.verbPh") },
+    { key: "verbInv", label: t("dz.verbInv"), value: (r && r.verbInv) || "", placeholder: t("dz.verbInvPh") },
+  ];
+}
+
 /** Resuelve un muchos a muchos: crea la tabla puente con las dos claves.
  *
  *  Un muchos a muchos no existe en una base de datos; se escribe con una tabla
@@ -3806,6 +3826,7 @@ async function askRelation(hija, colHija, padre, colPadre, tipo) {
   const campos = [
     { key: "name", label: t("dz.relName"), value: dzRelName(hija, padre) },
     relKindField(tipo === "ident"),
+    ...relVerbFields(null),
     ...relColFields(hija, padre, clave, proponer),
     { key: "onDelete", label: t("dz.onDelete"), type: "select", options: acciones, value: "" },
     { key: "onUpdate", label: t("dz.onUpdate"), type: "select", options: acciones, value: "" },
@@ -3824,6 +3845,8 @@ async function askRelation(hija, colHija, padre, colPadre, tipo) {
     fromTable: hija.id,
     toTable: padre.id,
     cols,
+    verb: vals.verb || "",
+    verbInv: vals.verbInv || "",
     onDelete: vals.onDelete,
     onUpdate: vals.onUpdate,
   });
@@ -3844,6 +3867,7 @@ async function editRelation(r) {
   const vals = await askFields(t("dz.relTitle"), [
     { key: "name", label: t("dz.relName"), value: r.name || dzRelName(hija, padre) },
     relKindField(relIsIdentifying(r)),
+    ...relVerbFields(r),
     ...relColFields(hija, padre, clave, (c, i) => r.cols[i].from),
     { key: "onDelete", label: t("dz.onDelete"), type: "select", options: acciones, value: r.onDelete || "" },
     { key: "onUpdate", label: t("dz.onUpdate"), type: "select", options: acciones, value: r.onUpdate || "" },
@@ -3854,7 +3878,15 @@ async function editRelation(r) {
   const ident = vals.kind === "ident";
   for (const p of cols) migrateKeyColumn(hija, p.from, padre.columns.find((c) => c.name === p.to), ident);
   applyRelKind(hija, cols, ident);
-  Object.assign(r, { name: vals.name.trim(), cols, onDelete: vals.onDelete, onUpdate: vals.onUpdate });
+  // En físico el diálogo no trae las frases, así que se conservan las que haya.
+  Object.assign(r, {
+    name: vals.name.trim(),
+    cols,
+    verb: vals.verb ?? r.verb,
+    verbInv: vals.verbInv ?? r.verbInv,
+    onDelete: vals.onDelete,
+    onUpdate: vals.onUpdate,
+  });
   saveDesign();
   renderDesigner();
 }
@@ -3905,6 +3937,38 @@ function cardBox(card) {
   return { x: card.offsetLeft, y: card.offsetTop, w: card.offsetWidth, h: card.offsetHeight };
 }
 
+/** La relación leída como una frase: «Pedido contiene Línea del pedido».
+ *
+ *  Son dos, una por sentido, porque las dos se leen y no significan lo mismo:
+ *  el padre CONTIENE a la hija y la hija PERTENECE A al padre. En ERwin se
+ *  escriben así y es lo que convierte un diagrama en algo que se puede leer en
+ *  voz alta delante de quien no sabe de bases de datos. Con los nombres de la
+ *  vista, que en lógico son los de negocio. */
+function relPhrase(r, inversa) {
+  const hija = dzTableById(r.fromTable);
+  const padre = dzTableById(r.toTable);
+  if (!hija || !padre) return "";
+  const v = String((inversa ? r.verbInv : r.verb) || "").trim();
+  if (!v) return "";
+  return inversa
+    ? `${tblName(hija)} ${v} ${tblName(padre)}`
+    : `${tblName(padre)} ${v} ${tblName(hija)}`;
+}
+
+/** Cómo se nombra una relación al mostrarla.
+ *
+ *  En lógico manda la frase, si la hay: el nombre de la restricción es físico
+ *  y en esa vista no dice nada a nadie. */
+function relLabel(r) {
+  if (dzLogical()) {
+    const f = relPhrase(r, false) || relPhrase(r, true);
+    if (f) return f;
+  }
+  const ft = dzTableById(r.fromTable);
+  const tt = dzTableById(r.toTable);
+  return r.name || (ft && tt ? dzRelName(ft, tt) : "");
+}
+
 /** ¿La relación IDENTIFICA a la hija?
  *
  *  Lo hace cuando la columna foránea forma parte de la clave primaria de la
@@ -3921,6 +3985,33 @@ function relIsIdentifying(r) {
     const c = hija.columns.find((x) => x.name === p.from);
     return !!(c && c.pk);
   });
+}
+
+/** Escribe una frase a lo largo de la línea, cerca de `extremo`.
+ *
+ *  Se separa del extremo para no taparlo con la pata de gallo o la barra, y se
+ *  aparta en perpendicular para no quedar encima de la propia línea. El borde
+ *  del color del lienzo (`paint-order`) es lo que la deja legible cuando cruza
+ *  otra línea: sin él, en un modelo con tráfico no se lee ninguna. */
+function ponerFrase(svg, frase, extremo, siguiente) {
+  const txt = String(frase || "").trim();
+  if (!txt) return;
+  const dx = siguiente.x - extremo.x;
+  const dy = siguiente.y - extremo.y;
+  const largo = Math.hypot(dx, dy) || 1;
+  // A 26 px del extremo, o a la mitad del tramo si es más corto que eso.
+  const d = Math.min(26, largo / 2);
+  const ux = dx / largo;
+  const uy = dy / largo;
+  const el = document.createElementNS(SVGNS, "text");
+  el.setAttribute("class", "dz-verb");
+  // La perpendicular, para que la frase no caiga sobre la línea.
+  el.setAttribute("x", extremo.x + ux * d + -uy * 9);
+  el.setAttribute("y", extremo.y + uy * d + ux * 9);
+  el.setAttribute("text-anchor", "middle");
+  el.setAttribute("dominant-baseline", "middle");
+  el.textContent = txt;
+  svg.appendChild(el);
 }
 
 function drawDesignEdges() {
@@ -3958,6 +4049,14 @@ function drawDesignEdges() {
     if (!relIsIdentifying(r)) line.setAttribute("class", "dz-no-id");
     if (dzSelEs("relation", r.id)) line.classList.add("sel");
     svg.appendChild(line);
+
+    // Cada frase va pegada al extremo del que habla: la del padre junto al
+    // padre y la inversa junto a la hija. Puestas en medio no se sabría cuál
+    // de las dos es cuál.
+    if (dzLogical()) {
+      ponerFrase(svg, r.verb, puntos[3], puntos[2]);
+      ponerFrase(svg, r.verbInv, puntos[0], puntos[1]);
+    }
   }
 
   // La línea de goma de la relación que se está tirando.
@@ -4178,7 +4277,7 @@ function renderTree() {
       const ft = dzTableById(r.fromTable);
       const tt = dzTableById(r.toTable);
       if (!ft || !tt) continue;
-      treeItem(sub, "relation", r.id, r.name || dzRelName(ft, tt), () => editRelation(r), () => {
+      treeItem(sub, "relation", r.id, relLabel(r), () => editRelation(r), () => {
         design.relations = design.relations.filter((x) => x.id !== r.id);
         if (dzSelEs("relation", r.id)) dzSel = null;
         saveDesign();
@@ -4228,6 +4327,13 @@ function renderStatus() {
     const ft = r && dzTableById(r.fromTable);
     const tt = r && dzTableById(r.toTable);
     if (ft && tt) {
+      // En lógico, la frase entera y las dos direcciones: es lo que se lee en
+      // voz alta. Las columnas y las acciones son físicas y se ven en físico.
+      if (dzLogical()) {
+        const frases = [relPhrase(r, false), relPhrase(r, true)].filter(Boolean);
+        el.textContent = frases.length ? frases.join("  \u00b7  ") : relLabel(r);
+        return;
+      }
       const lado = (l) => (l.length > 1 ? `(${l.join(", ")})` : l[0]);
       const acciones = [r.onDelete ? "ON DELETE " + r.onDelete : "", r.onUpdate ? "ON UPDATE " + r.onUpdate : ""].filter(Boolean).join(" \u00b7 ");
       el.textContent =
@@ -4612,7 +4718,7 @@ function designToXml() {
         `    <relation${at("name", r.name)}` +
         `${at("child-table", tblKey(ft))}${uno ? at("child-column", uno.from) : ""}` +
         `${at("parent-table", tblKey(tt))}${uno ? at("parent-column", uno.to) : ""}` +
-        `${at("on-delete", r.onDelete)}${at("on-update", r.onUpdate)}`;
+        `${at("verb", r.verb)}${at("verb-inv", r.verbInv)}${at("on-delete", r.onDelete)}${at("on-update", r.onUpdate)}`;
       if (uno) out += " />\n";
       else {
         out += ">\n";
@@ -4718,6 +4824,8 @@ function xmlToDesign(texto) {
       fromTable: from,
       toTable: to,
       cols,
+      verb: re.getAttribute("verb") || "",
+      verbInv: re.getAttribute("verb-inv") || "",
       onDelete: re.getAttribute("on-delete") || "",
       onUpdate: re.getAttribute("on-update") || "",
     });

@@ -121,6 +121,14 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **Frases verbales: el diagrama se puede leer en voz alta.** Dos por relación, una por
+  sentido, porque las dos se leen y no dicen lo mismo: «Pedido de venta contiene Línea del
+  pedido» y «Línea del pedido pertenece a Pedido de venta». Cada una va pegada al extremo
+  del que habla —en medio no se sabría cuál es cuál— y con un borde del color del lienzo
+  por debajo, que es lo que las deja legibles cuando cruzan otra línea. Salen en lógico,
+  donde el árbol nombra la relación por su frase y no por un nombre de restricción que no
+  le dice nada a quien la está leyendo. El diálogo las pide solo en lógico, y aceptar el
+  de físico —que no las trae— no las borra.
 - **Dominios: tipos con nombre, reutilizables.** Se define `Codigo = varchar(500)` una vez
   y las columnas apuntan a él; se cambia el dominio y lo siguen todas, el script incluido.
   El dominio es el dueño del tipo y la columna guarda una copia que se refresca antes de
