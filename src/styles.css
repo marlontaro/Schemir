@@ -646,6 +646,26 @@ body.dz-full #design-output {
   transition: transform 0.12s ease; opacity: 0.6;
 }
 .dz-tr-group.cerrado .dz-tr-head::before { transform: rotate(0deg); }
+/* El editor del area: la lista entera del modelo con una casilla cada una, en
+   una caja que se desplaza. Alta y no ancha: lo que se lee de una tabla aqui es
+   su nombre, y lo que se compara es cuantas llevas marcadas. */
+.dz-area-ed { width: min(560px, 92vw); }
+.dz-area-bar { display: flex; gap: 8px; align-items: center; }
+.dz-area-filter { flex: 1 1 auto; min-width: 0; }
+.dz-area-list {
+  max-height: 46vh; overflow: auto; margin-top: 6px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+}
+.dz-area-row {
+  display: flex; align-items: center; gap: 8px; padding: 5px 10px; cursor: pointer;
+  font-size: 12.5px; border-bottom: 1px solid var(--border);
+}
+.dz-area-row:last-child { border-bottom: none; }
+.dz-area-row:hover { background: var(--surface-3); }
+.dz-area-row .dz-tr-dot { margin: 0; }
+.dz-area-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dz-area-count { margin: 6px 0 0; font-size: 11.5px; color: var(--muted-2); }
+
 /* Los problemas del modelo. Los dos colores que el resto de la pantalla ya usa
    para lo roto y lo dudoso, y nada mas: la fila del arbol es estrecha y un
    icono ahi dentro se convierte en un borron de ocho pixeles. */

@@ -56,6 +56,23 @@ const I18N = {
     "dz.vRelNoKey": "{n}: {t} no tiene clave primaria a la que apuntar",
     "dz.vRelKey": "{n}: tiene que apuntar a la clave completa de {t} ({k})",
     "dz.vDomType": "{d}: \u00ab{x}\u00bb no es un tipo de {m}",
+    "dz.area": "\u00c1rea",
+    "dz.areaAll": "Todo el modelo",
+    "dz.areas": "\u00c1reas tem\u00e1ticas",
+    "dz.areaNew": "\u00c1rea nueva",
+    "dz.areaTitle": "\u00c1rea tem\u00e1tica",
+    "dz.areaName": "Nombre del \u00e1rea",
+    "dz.areaDup": "Ya hay un \u00e1rea con ese nombre",
+    "dz.areaDel": "\u00bfBorrar el \u00e1rea {t}? Las tablas no se tocan.",
+    "dz.areaMembers": "Tablas del \u00e1rea",
+    "dz.areaFilter": "Filtrar\u2026",
+    "dz.areaRelated": "+ Las relacionadas",
+    "dz.areaRelatedHint": "A\u00f1ade las tablas que tienen una relaci\u00f3n con alguna de las marcadas.",
+    "dz.areaEmpty": "Esta \u00e1rea todav\u00eda no tiene ninguna tabla.",
+    "dz.areaOut1": "1 relaci\u00f3n sale del \u00e1rea",
+    "dz.areaOut": "{n} relaciones salen del \u00e1rea",
+    "dz.areaRemove": "Quitar del \u00e1rea",
+    "dz.areaNone": "sin \u00e1reas",
     "dz.domains": "Dominios",
     "dz.domainNew": "Dominio nuevo",
     "dz.domainTitle": "Dominio",
@@ -346,6 +363,23 @@ const I18N = {
     "dz.vRelNoKey": "{n}: {t} has no primary key to point at",
     "dz.vRelKey": "{n}: it must point at the whole key of {t} ({k})",
     "dz.vDomType": "{d}: \u201c{x}\u201d is not a {m} type",
+    "dz.area": "Area",
+    "dz.areaAll": "Whole model",
+    "dz.areas": "Subject areas",
+    "dz.areaNew": "New subject area",
+    "dz.areaTitle": "Subject area",
+    "dz.areaName": "Area name",
+    "dz.areaDup": "There is already an area with that name",
+    "dz.areaDel": "Delete the area {t}? The tables are not touched.",
+    "dz.areaMembers": "Tables in the area",
+    "dz.areaFilter": "Filter\u2026",
+    "dz.areaRelated": "+ The related ones",
+    "dz.areaRelatedHint": "Adds the tables that have a relationship with any of the ticked ones.",
+    "dz.areaEmpty": "This area has no tables yet.",
+    "dz.areaOut1": "1 relationship leaves the area",
+    "dz.areaOut": "{n} relationships leave the area",
+    "dz.areaRemove": "Remove from the area",
+    "dz.areaNone": "no areas",
     "dz.domains": "Domains",
     "dz.domainNew": "New domain",
     "dz.domainTitle": "Domain",
@@ -2146,6 +2180,18 @@ function loadDesign() {
 function migrateDesign(d) {
   if (!Array.isArray(d.schemas)) d.schemas = [];
   if (!Array.isArray(d.domains)) d.domains = [];
+  if (!Array.isArray(d.areas)) d.areas = [];
+  for (const a of d.areas) {
+    a.name = String(a.name || "");
+    // Un area no es duena de nada: si la tabla ya no esta, lo que sobra es el
+    // apunte, no la tabla.
+    a.tables = (Array.isArray(a.tables) ? a.tables : []).filter((id) => d.tables.some((x) => x.id === id));
+    if (!a.pos || typeof a.pos !== "object") a.pos = {};
+    for (const k of Object.keys(a.pos)) if (!a.tables.includes(k)) delete a.pos[k];
+  }
+  d.areas = d.areas.filter((a) => a.name);
+  // El area que se estaba mirando, como la vista. Si ya no existe, se mira todo.
+  if (!d.areas.some((a) => a.name === d.area)) d.area = "";
   // La vista es una preferencia del modelo, como el motor y la versión: al
   // abrirlo se vuelve a la que se estaba mirando.
   d.view = d.view === "logical" ? "logical" : "physical";
@@ -2257,6 +2303,294 @@ function dzRequired() {
     }
   }
   return req;
+}
+
+// ── Areas tematicas ──────────────────────────────────────────────────────────
+
+/** El area que se esta mirando, o `null` si se mira el modelo entero.
+ *
+ *  Un area tematica NO es un modelo aparte ni una copia: es un RECORTE del
+ *  mismo modelo. Guarda una lista de tablas y nada mas, asi que borrar un area
+ *  no borra ninguna tabla y una tabla puede estar en varias a la vez. Es lo que
+ *  hace falta cuando el lienzo tiene cuarenta tablas y la conversacion de hoy
+ *  es sobre seis.
+ *
+ *  Lo que el area NO toca es el script: el SQL se genera SIEMPRE del modelo
+ *  entero. Un script que dependiera de donde estas mirando seria una trampa —la
+ *  foranea a una tabla que quedo fuera del recorte fallaria al ejecutarlo—, y
+ *  es la misma regla que ya siguen logico y fisico: mirar no cambia lo que se
+ *  escribe. */
+function dzArea() {
+  if (!design.area) return null;
+  return (design.areas || []).find((a) => a.name === design.area) || null;
+}
+
+/** El area por su nombre. */
+function dzAreaByName(nombre) {
+  return (design.areas || []).find((a) => a.name === nombre) || null;
+}
+
+/** Las tablas que se ven ahora. */
+function dzVisible() {
+  const a = dzArea();
+  return a ? design.tables.filter((tbl) => a.tables.includes(tbl.id)) : design.tables;
+}
+
+/** Las relaciones que se pueden DIBUJAR: las que tienen los dos extremos a la
+ *  vista. `drawDesignEdges` ya salta las que no encuentran tarjeta, asi que el
+ *  lienzo se filtra solo; esto es para contarlas. */
+function dzVisibleRels() {
+  const a = dzArea();
+  if (!a) return design.relations;
+  return design.relations.filter((r) => a.tables.includes(r.fromTable) && a.tables.includes(r.toTable));
+}
+
+/** Las que se van fuera: un extremo dentro del area y el otro no.
+ *
+ *  Se cuentan en la barra porque no se dibujan, y no verlas se parece
+ *  demasiado a que no existan. La columna sigue marcada `(FK)` en la tarjeta
+ *  —eso lo lee del modelo entero—, pero la linea no tiene a donde ir. */
+function dzOutRels() {
+  const a = dzArea();
+  if (!a) return [];
+  return design.relations.filter((r) => a.tables.includes(r.fromTable) !== a.tables.includes(r.toTable));
+}
+
+/** Las tablas de `ids` mas las que tienen una relacion directa con alguna.
+ *
+ *  Un salto y no todos los que se puedan dar: encadenando, en un modelo bien
+ *  relacionado se acaba trayendo el modelo entero, que es justo lo que el area
+ *  venia a evitar. Si hacen falta dos saltos se pulsa dos veces. */
+function dzRelatedTo(ids) {
+  const base = new Set(ids);
+  const out = new Set(ids);
+  for (const r of design.relations) {
+    if (base.has(r.fromTable)) out.add(r.toTable);
+    if (base.has(r.toTable)) out.add(r.fromTable);
+  }
+  return [...out];
+}
+
+/** La posicion de una tabla EN LA VISTA DE AHORA.
+ *
+ *  Cada area coloca sus tablas a su manera, como los diagramas de ERwin: en
+ *  «Ventas» pones seis tablas donde se lean y en «Almacen» la misma `producto`
+ *  cae en otro sitio. Con una sola posicion global, abrir un area de seis
+ *  tablas dejaba la pantalla llena de huecos del sitio de las otras nueve, y
+ *  entonces el recorte no servia para lo unico que sirve: leerse.
+ *
+ *  La primera vez que una tabla aparece en un area se cae a su posicion del
+ *  modelo entero, asi que el area no empieza amontonada en una esquina sino
+ *  como ya estaba, menos lo que no se ve. El TAMANO si es uno solo: lo ancha
+ *  que tiene que ser una tabla para que se lean sus columnas es lo mismo en
+ *  todas partes. */
+function tblPos(tbl) {
+  const a = dzArea();
+  const p = a && a.pos[tbl.id];
+  return p ? { x: p.x, y: p.y } : { x: tbl.x || 20, y: tbl.y || 20 };
+}
+
+function setTblPos(tbl, x, y) {
+  const a = dzArea();
+  if (a) a.pos[tbl.id] = { x, y };
+  else { tbl.x = x; tbl.y = y; }
+}
+
+/** Mete una tabla recien creada en el area que se esta mirando.
+ *
+ *  Sin esto, crear una tabla dentro de un area la hacia desaparecer en el acto:
+ *  nacia fuera del recorte que tienes delante. */
+function dzJoinArea(tbl) {
+  const a = dzArea();
+  if (a && !a.tables.includes(tbl.id)) a.tables.push(tbl.id);
+}
+
+/** Saca una tabla de todas las areas. Al borrarla del modelo. */
+function dropTableFromAreas(id) {
+  for (const a of design.areas || []) {
+    a.tables = a.tables.filter((x) => x !== id);
+    delete a.pos[id];
+  }
+}
+
+/** Cambia el recorte que se mira. */
+function setArea(nombre) {
+  design.area = dzAreaByName(nombre) ? nombre : "";
+  saveDesign();
+  renderDesigner();
+}
+
+/** El desplegable de la barra: siempre dice lo que estas mirando.
+ *
+ *  Va en la barra y no solo en el arbol porque un area activa cambia lo que ves
+ *  del modelo entero, y eso no puede quedarse escondido en un panel que se
+ *  desplaza. */
+function renderAreaSelect() {
+  const sel = document.getElementById("design-area");
+  const lbl = document.querySelector('[data-i18n="dz.area"]');
+  if (!sel) return;
+  // Sin areas definidas el desplegable no dice nada: no se ensena.
+  const hay = (design.areas || []).length > 0;
+  sel.hidden = !hay;
+  if (lbl) lbl.hidden = !hay;
+  if (!hay) return;
+  sel.replaceChildren();
+  sel.appendChild(new Option(t("dz.areaAll"), ""));
+  for (const a of design.areas) sel.appendChild(new Option(a.name, a.name));
+  sel.value = design.area || "";
+}
+
+/** El area: el nombre y que tablas lleva.
+ *
+ *  La lista entera con una casilla cada una, y no un arrastre al lienzo, porque
+ *  componer un area es decidir sobre el modelo COMPLETO y ahi hace falta verlo
+ *  completo. El filtro y «+ las relacionadas» son lo que convierte componerla
+ *  en dos gestos en vez de quince. */
+function openAreaEditor(area) {
+  const nuevo = !area;
+  // Sobre una copia: cancelar no tiene que haber movido nada.
+  const d = nuevo
+    ? { name: "", tables: [], pos: {} }
+    : { name: area.name, tables: [...area.tables], pos: area.pos };
+  let filtro = "";
+
+  const back = document.createElement("div");
+  back.className = "dz-modal-back";
+  const caja = document.createElement("div");
+  caja.className = "dz-modal dz-area-ed";
+
+  const head = document.createElement("div");
+  head.className = "dz-modal-head";
+  head.textContent = nuevo ? t("dz.areaNew") : t("dz.areaTitle");
+  caja.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "dz-modal-body";
+  caja.appendChild(body);
+
+  const aviso = document.createElement("p");
+  aviso.className = "dz-dom-warn";
+  aviso.hidden = true;
+
+  const lblNombre = document.createElement("label");
+  const spNombre = document.createElement("span");
+  spNombre.textContent = t("dz.areaName");
+  const inNombre = document.createElement("input");
+  inNombre.type = "text";
+  inNombre.value = d.name;
+  inNombre.placeholder = "Ventas";
+  inNombre.addEventListener("input", () => { d.name = inNombre.value; aviso.hidden = true; });
+  lblNombre.append(spNombre, inNombre);
+
+  const barra = document.createElement("div");
+  barra.className = "dz-area-bar";
+  const inFiltro = document.createElement("input");
+  inFiltro.type = "text";
+  inFiltro.className = "dz-area-filter";
+  inFiltro.placeholder = t("dz.areaFilter");
+  inFiltro.addEventListener("input", () => { filtro = inFiltro.value.trim().toLowerCase(); pintarLista(); });
+  const btnRel = document.createElement("button");
+  btnRel.type = "button";
+  btnRel.className = "btn ghost";
+  btnRel.textContent = t("dz.areaRelated");
+  btnRel.title = t("dz.areaRelatedHint");
+  btnRel.addEventListener("click", () => { d.tables = dzRelatedTo(d.tables); pintarLista(); });
+  barra.append(inFiltro, btnRel);
+
+  const cuenta = document.createElement("p");
+  cuenta.className = "dz-area-count";
+
+  const lista = document.createElement("div");
+  lista.className = "dz-area-list";
+
+  const pintarLista = () => {
+    lista.replaceChildren();
+    for (const tbl of design.tables) {
+      const texto = tblLabel(tbl);
+      if (filtro && !texto.toLowerCase().includes(filtro)) continue;
+      const fila = document.createElement("label");
+      fila.className = "dz-area-row";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = d.tables.includes(tbl.id);
+      cb.addEventListener("change", () => {
+        d.tables = cb.checked ? [...d.tables, tbl.id] : d.tables.filter((x) => x !== tbl.id);
+        pintarCuenta();
+      });
+      const punto = document.createElement("span");
+      punto.className = "dz-tr-dot";
+      if (tbl.color) punto.dataset.color = tbl.color;
+      const sp = document.createElement("span");
+      sp.className = "dz-area-nm";
+      sp.textContent = texto;
+      fila.append(cb, punto, sp);
+      lista.appendChild(fila);
+    }
+    pintarCuenta();
+  };
+  const pintarCuenta = () => {
+    const n = d.tables.length;
+    cuenta.textContent = n === 1 ? t("dz.stTable1") : t("dz.stTables").replace("{n}", n);
+  };
+
+  const lblLista = document.createElement("label");
+  const spLista = document.createElement("span");
+  spLista.textContent = t("dz.areaMembers");
+  lblLista.append(spLista, barra);
+
+  pintarLista();
+  body.append(lblNombre, lblLista, lista, cuenta, aviso);
+
+  const foot = document.createElement("div");
+  foot.className = "dz-modal-foot";
+  const cancelar = document.createElement("button");
+  cancelar.type = "button";
+  cancelar.className = "btn ghost";
+  cancelar.textContent = t("btn.cancel");
+  const ok = document.createElement("button");
+  ok.type = "button";
+  ok.className = "btn primary";
+  ok.textContent = t("btn.ok");
+  foot.append(cancelar, ok);
+  caja.appendChild(foot);
+
+  back.appendChild(caja);
+  document.body.appendChild(back);
+
+  const cerrar = () => {
+    document.removeEventListener("keydown", onKey);
+    back.remove();
+  };
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); cerrar(); } };
+  document.addEventListener("keydown", onKey);
+  cancelar.addEventListener("click", cerrar);
+  back.addEventListener("mousedown", (e) => { if (e.target === back) cerrar(); });
+
+  ok.addEventListener("click", () => {
+    const nombre = d.name.trim();
+    if (!nombre) return;
+    // El area se nombra por su nombre en el desplegable y en el XML, asi que
+    // dos iguales no se podrian distinguir.
+    if ((design.areas || []).some((x) => x !== area && x.name === nombre)) {
+      aviso.textContent = t("dz.areaDup");
+      aviso.hidden = false;
+      return;
+    }
+    // Las posiciones propias de las tablas que salieron se van con ellas.
+    const pos = {};
+    for (const id of d.tables) if (d.pos[id]) pos[id] = d.pos[id];
+    if (nuevo) design.areas.push({ name: nombre, tables: d.tables, pos });
+    else {
+      const viejo = area.name;
+      Object.assign(area, { name: nombre, tables: d.tables, pos });
+      if (design.area === viejo) design.area = nombre;
+    }
+    saveDesign();
+    cerrar();
+    renderDesigner();
+  });
+
+  inNombre.focus();
 }
 
 // ── Esquemas ─────────────────────────────────────────────────────────────────
@@ -2544,7 +2878,14 @@ function renderDesigner() {
   applyDomains();
   normalizeAuto();
   canvas.innerHTML = "";
-  document.getElementById("design-empty").hidden = design.tables.length > 0;
+  // El lienzo ensena el recorte que se mira. Las lineas se filtran solas:
+  // `drawDesignEdges` salta la relacion que no encuentra las dos tarjetas.
+  const aVista = dzVisible();
+  const vacio = document.getElementById("design-empty");
+  vacio.hidden = aVista.length > 0;
+  // Un area vacia no es un modelo vacio, y decirle «anade una tabla para
+  // empezar tu modelo» a quien ya tiene cuarenta es confundirle.
+  vacio.textContent = t(dzArea() ? "dz.areaEmpty" : "dz.empty");
 
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("class", "dz-edges");
@@ -2554,11 +2895,12 @@ function renderDesigner() {
   svg.setAttribute("pointer-events", "none");
   canvas.appendChild(svg);
 
-  for (const tbl of design.tables) canvas.appendChild(buildDesignCard(tbl));
+  for (const tbl of aVista) canvas.appendChild(buildDesignCard(tbl));
   drawDesignEdges();
   renderTree();
   renderPalette();
   renderViewToggle();
+  renderAreaSelect();
   renderStatus();
   renderVersionNote();
   // Si el editor de una tabla está abierto, sus filas se rehacen también: si no,
@@ -3098,8 +3440,9 @@ function buildDesignCard(tbl) {
   card.className = "dz-table" + (tableIsDependent(tbl) ? " dependiente" : "");
   card.dataset.id = tbl.id;
   if (tbl.color) card.dataset.color = tbl.color;
-  card.style.left = (tbl.x || 20) + "px";
-  card.style.top = (tbl.y || 20) + "px";
+  const pos = tblPos(tbl);
+  card.style.left = pos.x + "px";
+  card.style.top = pos.y + "px";
   // El tamaño es del usuario: lo ajusta tirando de la esquina y se guarda. Sin
   // alto la tarjeta mide lo que midan sus columnas, que es lo corriente; con él
   // la lista se desplaza dentro y la tarjeta deja de comerse el lienzo.
@@ -3154,8 +3497,19 @@ function buildDesignCard(tbl) {
   delBtn.type = "button";
   delBtn.className = "dz-icon-btn";
   delBtn.textContent = "✕";
-  delBtn.title = t("dz.delTable");
+  // Dentro de un area la X quita del AREA, no del modelo: el recorte es una
+  // vista y lo que se quita de una vista no se borra de lo que la vista mira.
+  delBtn.title = dzArea() ? t("dz.areaRemove") : t("dz.delTable");
   delBtn.addEventListener("click", () => {
+    const ar = dzArea();
+    if (ar) {
+      ar.tables = ar.tables.filter((x) => x !== tbl.id);
+      delete ar.pos[tbl.id];
+      saveDesign();
+      renderDesigner();
+      return;
+    }
+    dropTableFromAreas(tbl.id);
     design.tables = design.tables.filter((x) => x.id !== tbl.id);
     design.relations = design.relations.filter((r) => r.fromTable !== tbl.id && r.toTable !== tbl.id);
     saveDesign();
@@ -3458,12 +3812,14 @@ function makeDesignDraggable(card, handle, tbl) {
   handle.addEventListener("mousedown", (e) => {
     if (e.target.closest("input, button, select")) return; // no arrastres al editar
     e.preventDefault();
-    const start = { x: e.clientX, y: e.clientY, left: tbl.x || 20, top: tbl.y || 20 };
+    const p0 = tblPos(tbl);
+    const start = { x: e.clientX, y: e.clientY, left: p0.x, top: p0.y };
     const move = (ev) => {
-      tbl.x = Math.max(0, Math.round(start.left + (ev.clientX - start.x)));
-      tbl.y = Math.max(0, Math.round(start.top + (ev.clientY - start.y)));
-      card.style.left = tbl.x + "px";
-      card.style.top = tbl.y + "px";
+      const nx = Math.max(0, Math.round(start.left + (ev.clientX - start.x)));
+      const ny = Math.max(0, Math.round(start.top + (ev.clientY - start.y)));
+      setTblPos(tbl, nx, ny);
+      card.style.left = nx + "px";
+      card.style.top = ny + "px";
       drawDesignEdges();
     };
     const up = () => {
@@ -3707,11 +4063,12 @@ function makeBridge(a, b) {
     id: "t" + design.seq++,
     name: nombre,
     schema: a.schema || dz?.default_schema || "",
-    x: Math.round(((a.x || 20) + (b.x || 20)) / 2),
-    y: Math.round(Math.max(a.y || 20, b.y || 20)) + 220,
+    x: Math.round((tblPos(a).x + tblPos(b).x) / 2),
+    y: Math.round(Math.max(tblPos(a).y, tblPos(b).y)) + 220,
     columns: [newPkColumn()],
   };
   design.tables.push(puente);
+  dzJoinArea(puente);
 
   const nombreLibre = (padre, col) =>
     puente.columns.some((x) => x.name === col.name) ? col.name + pascal(padre.name) : col.name;
@@ -4209,6 +4566,11 @@ function dzSelEs(kind, id) {
 /** Selecciona un objeto, lo deja a la vista en el lienzo y lo cuenta abajo. */
 function dzSelect(kind, id) {
   dzSel = { kind, id };
+  // Un area no se «selecciona»: se mira. Y llevar a una tabla que no esta en el
+  // recorte de ahora significa salir del recorte, porque si no el clic no hace
+  // nada visible —es lo que pasa al pulsar un problema de una tabla oculta—.
+  if (kind === "area") { setArea(id); return; }
+  if (kind === "table" && !dzVisible().some((x) => x.id === id)) { setArea(""); return; }
   renderTree();
   renderStatus();
   marcarSeleccion();
@@ -4476,10 +4838,27 @@ function renderTree() {
   if (!ul) return;
   ul.innerHTML = "";
 
-  treeGroup(ul, "tables", t("dz.treeTables"), design.tables.length, (sub) => {
-    for (const tbl of design.tables) {
+  // El arbol es el explorador de LO QUE SE MIRA: con un area activa ensena sus
+  // tablas y sus relaciones, no las del modelo entero. Lo que se mira lo dice
+  // el desplegable de la barra, que no se desplaza con el panel.
+  const aVista = dzVisible();
+  const relVista = dzVisibleRels();
+  treeGroup(ul, "tables", t("dz.treeTables"), aVista.length, (sub) => {
+    for (const tbl of aVista) {
       treeItem(sub, "table", tbl.id, tblLabel(tbl), () => openTableEditor(tbl), () => {
+        // Dentro de un area, quitar es quitar DEL AREA. El area es una vista y
+        // la tabla sigue en el modelo: borrarla entera desde un recorte seria
+        // borrar lo que no se esta mirando.
+        const ar = dzArea();
+        if (ar) {
+          ar.tables = ar.tables.filter((x) => x !== tbl.id);
+          delete ar.pos[tbl.id];
+          saveDesign();
+          renderDesigner();
+          return;
+        }
         if (!confirm(t("dz.delTable") + ": " + tblLabel(tbl) + "?")) return;
+        dropTableFromAreas(tbl.id);
         design.tables = design.tables.filter((x) => x.id !== tbl.id);
         design.relations = design.relations.filter((r) => r.fromTable !== tbl.id && r.toTable !== tbl.id);
         if (dzSelEs("table", tbl.id)) dzSel = null;
@@ -4489,8 +4868,8 @@ function renderTree() {
     }
   });
 
-  treeGroup(ul, "rels", t("dz.treeRels"), design.relations.length, (sub) => {
-    for (const r of design.relations) {
+  treeGroup(ul, "rels", t("dz.treeRels"), relVista.length, (sub) => {
+    for (const r of relVista) {
       const ft = dzTableById(r.fromTable);
       const tt = dzTableById(r.toTable);
       if (!ft || !tt) continue;
@@ -4502,6 +4881,21 @@ function renderTree() {
       });
     }
   });
+
+  treeGroup(ul, "areas", t("dz.areas"), (design.areas || []).length, (sub) => {
+    for (const a of design.areas || []) {
+      // Un clic en un area es MIRARLA: un area no es un objeto del modelo sino
+      // un recorte de el, y lo unico que se hace con un recorte es ponerselo
+      // delante. Doble clic abre que tablas lleva.
+      treeItem(sub, "area", a.name, a.name, () => openAreaEditor(a), () => {
+        if (!confirm(t("dz.areaDel").replace("{t}", a.name))) return;
+        design.areas = design.areas.filter((x) => x !== a);
+        if (design.area === a.name) design.area = "";
+        saveDesign();
+        renderDesigner();
+      });
+    }
+  }, () => openAreaEditor(null));
 
   treeGroup(ul, "domains", t("dz.domains"), (design.domains || []).length, (sub) => {
     for (const d of design.domains || []) {
@@ -4596,18 +4990,28 @@ function renderStatus() {
   if (!design.tables.length) { el.textContent = t("dz.treeEmpty"); return; }
   // La cuenta de problemas, cuando hay: el panel del arbol se puede desplazar y
   // la barra no, asi que es el unico sitio que esta siempre a la vista.
+  // La validacion es del MODELO, no del recorte: un problema en una tabla que
+  // ahora no se ve rompe el script igual.
   const males = validateDesign().length;
   const cola = males ? " \u00b7 " + plural(males, "dz.stIssue1", "dz.stIssues") : "";
+  const ar = dzArea();
+  const nT = dzVisible().length;
+  const nR = dzVisibleRels().length;
+  const fuera = dzOutRels().length;
+  // El nombre del area delante: es el «estas aqui» de la pantalla.
+  const cabeza = ar ? ar.name + " \u00b7 " : "";
+  const sale = fuera ? " \u00b7 " + plural(fuera, "dz.areaOut1", "dz.areaOut") : "";
   if (dzLogical()) {
     el.textContent =
-      t("dz.viewLogicalHint") + " \u00b7 " +
-      `${plural(design.tables.length, "dz.stTable1", "dz.stTables")} \u00b7 ` +
-      plural(design.relations.length, "dz.stRel1", "dz.stRels") + cola;
+      cabeza + t("dz.viewLogicalHint") + " \u00b7 " +
+      `${plural(nT, "dz.stTable1", "dz.stTables")} \u00b7 ` +
+      plural(nR, "dz.stRel1", "dz.stRels") + sale + cola;
     return;
   }
   el.textContent =
-    `${plural(design.tables.length, "dz.stTable1", "dz.stTables")} \u00b7 ` +
-    `${plural(design.relations.length, "dz.stRel1", "dz.stRels")}${cola} \u00b7 ${t("dz.relHint")}`;
+    cabeza +
+    `${plural(nT, "dz.stTable1", "dz.stTables")} \u00b7 ` +
+    `${plural(nR, "dz.stRel1", "dz.stRels")}${sale}${cola} \u00b7 ${t("dz.relHint")}`;
 }
 
 
@@ -4797,19 +5201,23 @@ document.getElementById("design-version").addEventListener("change", (e) => {
 
 document.getElementById("add-table").addEventListener("click", () => {
   const n = design.tables.length;
-  design.tables.push({
+  const nueva = {
     id: "t" + design.seq++,
     name: "tabla_" + (n + 1),
     schema: dz?.default_schema || "",
     x: 20 + (n % 4) * 250,
     y: 20 + Math.floor(n / 4) * 230,
     columns: [newPkColumn()],
-  });
+  };
+  design.tables.push(nueva);
+  dzJoinArea(nueva);
   saveDesign();
   renderDesigner();
 });
 
 document.getElementById("add-schema").addEventListener("click", () => askNewSchema().then(renderDesigner));
+
+document.getElementById("design-area").addEventListener("change", (e) => setArea(e.target.value));
 
 // Con la herramienta de tabla armada, se pulsa en el lienzo y la tabla nace
 // ahí. Es la diferencia entre colocar y que te la coloquen: el botón «+ Tabla»
@@ -4819,14 +5227,18 @@ document.getElementById("design-canvas").addEventListener("mousedown", (e) => {
   if (dzTool !== "table" || e.target.closest(".dz-table")) return;
   const canvas = e.currentTarget;
   const caja = canvas.getBoundingClientRect();
-  design.tables.push({
+  const nueva = {
     id: "t" + design.seq++,
     name: "tabla_" + (design.tables.length + 1),
     schema: dz?.default_schema || "",
     x: Math.round(e.clientX - caja.left + canvas.scrollLeft),
     y: Math.round(e.clientY - caja.top + canvas.scrollTop),
     columns: [newPkColumn()],
-  });
+  };
+  design.tables.push(nueva);
+  dzJoinArea(nueva);
+  // Dentro de un area, la posicion donde se solto es la de ESA area.
+  setTblPos(nueva, nueva.x, nueva.y);
   saveDesign();
   renderDesigner();
   dzSetTool("select");
@@ -4950,6 +5362,25 @@ function designToXml() {
   }
   out += "  </tables>\n";
 
+  // Las areas, despues de las tablas, y apuntando a ellas por su nombre
+  // calificado como hacen las relaciones: un id de sesion no significa nada
+  // fuera de esta ventana. La posicion propia solo se escribe si la hay.
+  const areas = (design.areas || []).filter((a) => a.name);
+  if (areas.length) {
+    out += "  <areas>\n";
+    for (const a of areas) {
+      out += `    <area${at("name", a.name)}>\n`;
+      for (const id of a.tables) {
+        const tbl = dzTableById(id);
+        if (!tbl) continue;
+        const p = a.pos[id];
+        out += `      <member${at("table", tblKey(tbl))}${p ? at("x", p.x) + at("y", p.y) : ""} />\n`;
+      }
+      out += "    </area>\n";
+    }
+    out += "  </areas>\n";
+  }
+
   const rels = design.relations.filter((r) => dzTableById(r.fromTable) && dzTableById(r.toTable));
   if (rels.length) {
     out += "  <relations>\n";
@@ -4994,6 +5425,8 @@ function xmlToDesign(texto) {
     relations: [],
     schemas: [],
     domains: [],
+    areas: [],
+    area: "",
     seq: 1,
     dialect: root.getAttribute("dialect") || DZ_DIALECT_DEFAULT,
     version: root.getAttribute("engine-version") || "",
@@ -5043,6 +5476,21 @@ function xmlToDesign(texto) {
     porNombre.set(tblKey(tbl), tbl.id);
   }
   if (!d.tables.length) throw new Error(t("dz.emptyModel"));
+
+  for (const ae of root.querySelectorAll("areas > area")) {
+    const nombre = ae.getAttribute("name") || "";
+    if (!nombre) continue;
+    const area = { name: nombre, tables: [], pos: {} };
+    for (const me of ae.querySelectorAll("member")) {
+      const id = porNombre.get(me.getAttribute("table") || "");
+      if (!id || area.tables.includes(id)) continue;
+      area.tables.push(id);
+      const x = me.getAttribute("x");
+      const y = me.getAttribute("y");
+      if (x !== null && y !== null) area.pos[id] = { x: Number(x) || 0, y: Number(y) || 0 };
+    }
+    d.areas.push(area);
+  }
 
   for (const re of root.querySelectorAll("relations > relation")) {
     const from = porNombre.get(re.getAttribute("child-table") || "");

@@ -121,6 +121,30 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **Áreas temáticas: un recorte del modelo**, las *subject areas* de ERwin. Con cuarenta
+  tablas en el lienzo, la conversación de hoy es sobre seis; un área guarda una lista de
+  tablas y **nada más**, así que no es una copia ni un modelo aparte: borrar un área no
+  borra ninguna tabla, y una tabla puede estar en varias a la vez. **Cada área coloca sus
+  tablas a su manera**, como los diagramas de ERwin —en «Ventas» pones seis donde se lean
+  y en «Almacén» la misma `producto` cae en otro sitio—; con una sola posición global,
+  abrir un área de seis tablas dejaba la pantalla llena de los huecos de las otras
+  treinta y cuatro, y entonces el recorte no servía para lo único que sirve: leerse. La
+  primera vez que una tabla aparece en un área se cae a su sitio del modelo entero, así
+  que el área empieza como ya estaba menos lo que no se ve. El **tamaño** sí es uno solo:
+  lo ancha que tiene que ser una tabla para que se lean sus columnas es igual en todas
+  partes. **El script NO cambia:** el SQL se genera siempre del modelo entero, porque un
+  script que dependiera de dónde estás mirando sería una trampa —la foránea a una tabla
+  que quedó fuera fallaría al ejecutarlo— y es la misma regla que ya siguen lógico y
+  físico. Lo mismo la validación: un problema en una tabla que ahora no se ve rompe el
+  script igual, así que se sigue listando, y pulsarlo **sale del recorte** para llevarte a
+  ella. Dentro de un área la ✕ **quita del área**, no borra del modelo: lo que se quita de
+  una vista no se borra de lo que la vista mira. Una tabla creada con un área delante
+  entra en ella sola, porque si no nacería fuera de lo que estás viendo. Las relaciones
+  con un extremo fuera no se pueden dibujar, así que **la barra las cuenta**: no verlas se
+  parece demasiado a que no existan. El editor enseña el modelo completo con una casilla
+  por tabla, un filtro, y **«+ las relacionadas»**, que trae las que tienen una relación
+  directa con las marcadas —un salto y no todos, porque encadenando se acaba trayendo el
+  modelo entero, que es justo lo que el área venía a evitar—.
 - **El modelo se valida contra el catálogo del motor.** La lista que ERwin saca al validar,
   con la diferencia que es la razón de ser de Schemir: aquí el motor y su versión forman
   parte de la pregunta. `varchar` sin longitud se escribe igual de bien en cualquier parte y
