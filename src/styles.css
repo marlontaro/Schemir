@@ -537,6 +537,17 @@ body.dz-full #design-output {
   margin: 0; pointer-events: none;
 }
 
+/* El conmutador Lógico / Físico, con el mismo aspecto que el de Comparar /
+   Diseñar: son los dos conmutadores de vista del programa y se parecen a
+   propósito, para que se reconozca qué hacen sin leerlos. */
+.view-toggle { display: flex; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+.view-toggle button {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 700;
+}
+.view-toggle button:hover { color: var(--text); }
+.view-toggle button.active { background: var(--surface-3); color: var(--text); }
+
 /* ── El color de una tabla ───────────────────────────────────────────────────
    Un solo juego de tonos para los dos temas. El tono se mezcla con
    `--surface`, que ya cambia con el tema, así que en oscuro sale una
@@ -795,6 +806,15 @@ body.dz-full #design-output {
 .dz-ed-th > :nth-child(4), .dz-ed-th > :nth-child(5) { text-align: center; }
 /* En una rejilla las propiedades flex no pintan nada: el ancho lo manda la
    pista, así que los controles la llenan y se les quita el mínimo que tenían. */
+/* En lógico no hay tipo ni generador: son cosas del motor. Se ocultan y la
+   rejilla se queda con tres pistas, así que lo que sigue cae en su sitio sin
+   necesidad de otra plantilla por fila. */
+.dz-ed-th.logica, .dz-ed-cols.logica .dz-col {
+  grid-template-columns: minmax(160px, 1fr) 40px 40px 26px 26px 26px;
+}
+.dz-ed-cols.logica .dz-col > .dz-type,
+.dz-ed-cols.logica .dz-col > .dz-auto { display: none; }
+
 .dz-ed-cols .dz-col input[type="text"],
 .dz-ed-cols .dz-col select { width: 100%; min-width: 0; }
 .dz-ed-cols .dz-col > label.dz-flag { justify-content: center; }

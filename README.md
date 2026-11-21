@@ -133,6 +133,12 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   `FOREIGN KEY (a, b)`. A column that leaves the key is never deleted from the child: it
   keeps its data. Relationships you pointed at some other column on purpose are left
   alone, and so is a table that references itself, where no automatic answer would do.
+- 🔀 **Logical and physical, one model seen twice.** Switch the view and the canvas
+  reads `Pedido de venta · Fecha de emisión` instead of `dbo.pedido · fecha`. The physical
+  name stays the model's identity — relations point at physical columns and the script is
+  written with them — so a business name is a label and can never break anything. The
+  logical view shows no engine types and no schema, because neither exists in a business
+  model, and a column with no logical name falls back to its physical one.
 - 🎨 **Colour your tables**, the way ERwin does, to group what belongs together. The
   model stores the *name* of the colour, not the pixel: a `#1b5e20` picked on a white
   canvas is black-on-black the moment you switch to the dark theme, so each theme tints

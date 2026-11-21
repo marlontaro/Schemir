@@ -121,6 +121,20 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **Lógico y físico: el mismo modelo visto dos veces**, como el conmutador de ERwin. Se
+  cambia de vista y el lienzo pone `Pedido de venta · Fecha de emisión` donde ponía
+  `dbo.pedido · fecha`. Lo físico sigue siendo la identidad: las relaciones apuntan a
+  columnas por su nombre físico y el script se escribe con él, así que un nombre de
+  negocio es un rótulo y no puede romper nada —comprobado: escribir uno no mueve ni una
+  letra del SQL—. En lógico no se enseñan tipos de motor ni esquemas, porque ninguna de
+  las dos cosas existe en un modelo de negocio, y una columna sin nombre lógico se cae al
+  físico para que un modelo al que nunca se le pusieron nombres de negocio se vea igual en
+  las dos vistas.
+- **La vista manda qué nombre se ve Y cuál se escribe.** En lógico el editor escribe el
+  nombre lógico y esconde el tipo y el generador; en físico es exactamente el de siempre.
+  Si se vieran los dos nombres a la vez habría que explicar cuál es cuál en cada caja.
+- **La vista no viaja en el XML**: es de quien mira, no del modelo. Un archivo que se pasa
+  a otra persona no debe decidir por ella en qué vista lo abre.
 - **La tabla lleva color**, como las entidades de ERwin, para agrupar lo que va junto. El
   modelo guarda el NOMBRE del color y no el píxel: un `#1b5e20` elegido sobre fondo blanco
   es texto negro sobre negro en cuanto se pasa al tema oscuro, así que cada tema tiñe su

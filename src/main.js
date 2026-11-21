@@ -26,6 +26,12 @@ const I18N = {
     "dz.empty": "Añade una tabla para empezar tu modelo.",
     "dz.relations": "Relaciones (claves foráneas)",
     "dz.treeHead": "Modelo",
+    "dz.viewLogical": "Lógico",
+    "dz.viewPhysical": "Físico",
+    "dz.viewLogicalHint": "Vista lógica: nombres de negocio, sin tipos de motor",
+    "dz.logicalName": "Nombre lógico",
+    "dz.logicalCol": "lógico",
+    "dz.sameAsPhysical": "igual que el físico",
     "dz.color": "Color",
     "dz.cNone": "sin color",
     "dz.cBlue": "azul",
@@ -270,6 +276,12 @@ const I18N = {
     "dz.empty": "Add a table to start your model.",
     "dz.relations": "Relations (foreign keys)",
     "dz.treeHead": "Model",
+    "dz.viewLogical": "Logical",
+    "dz.viewPhysical": "Physical",
+    "dz.viewLogicalHint": "Logical view: business names, no engine types",
+    "dz.logicalName": "Logical name",
+    "dz.logicalCol": "logical",
+    "dz.sameAsPhysical": "same as physical",
     "dz.color": "Colour",
     "dz.cNone": "no colour",
     "dz.cBlue": "blue",
@@ -2053,15 +2065,20 @@ function loadDesign() {
  *  había ni esquemas ni nombre de relación. */
 function migrateDesign(d) {
   if (!Array.isArray(d.schemas)) d.schemas = [];
+  // La vista es una preferencia del modelo, como el motor y la versión: al
+  // abrirlo se vuelve a la que se estaba mirando.
+  d.view = d.view === "logical" ? "logical" : "physical";
   for (const tbl of d.tables) {
     if (typeof tbl.schema !== "string") tbl.schema = "";
     if (typeof tbl.color !== "string") tbl.color = "";
+    if (typeof tbl.logical !== "string") tbl.logical = "";
     tbl.columns = tbl.columns || [];
     for (const col of tbl.columns) {
       if (col.a === undefined && col.b === undefined) Object.assign(col, splitType(col.type));
       col.a = col.a ?? "";
       col.b = col.b ?? "";
       col.auto = col.auto || "";
+      if (typeof col.logical !== "string") col.logical = "";
     }
   }
   for (const r of d.relations) {
@@ -2175,10 +2192,45 @@ function dzSchemas() {
 function tblSchema(tbl) {
   return tbl.schema || dz?.default_schema || "";
 }
-/** Cómo se nombra la tabla al mostrarla y al generar SQL. */
-function tblLabel(tbl) {
+/** ¿Se está mirando el modelo lógico?
+ *
+ *  Lógico y físico son el MISMO modelo visto de dos maneras, no dos modelos.
+ *  Lo físico sigue siendo la identidad: las relaciones apuntan a columnas por su
+ *  nombre físico y el script se escribe con él. El nombre lógico es un rótulo y
+ *  nada más, así que ponerlo o quitarlo no puede romper nada. */
+function dzLogical() {
+  return design.view === "logical";
+}
+
+/** El nombre de la tabla en la vista de ahora.
+ *
+ *  Sin nombre lógico se cae al físico en vez de dejar la caja vacía: un modelo
+ *  al que nunca se le han puesto nombres de negocio se ve igual en las dos
+ *  vistas, que es lo menos sorprendente que puede pasar. */
+function tblName(tbl) {
+  return (dzLogical() && tbl.logical) || tbl.name || "";
+}
+function colDisplay(col) {
+  return (dzLogical() && col.logical) || col.name || "";
+}
+
+/** La tabla con su esquema, SIEMPRE el nombre físico.
+ *
+ *  Para lo que es físico de verdad y no cambia de nombre al cambiar de vista:
+ *  el diálogo de una clave foránea, que configura un objeto de la base. */
+function tblPhys(tbl) {
   const s = tblSchema(tbl);
   return dz?.supports_schemas && s ? `${s}.${tbl.name}` : tbl.name;
+}
+
+/** Cómo se nombra la tabla al MOSTRARLA. El SQL no pasa por aquí: lo escribe
+ *  `qt` con el nombre físico, que es el único que entiende el motor.
+ *
+ *  En lógico no lleva esquema: un esquema es una carpeta de la base de datos y
+ *  no significa nada en un modelo de negocio. */
+function tblLabel(tbl) {
+  if (dzLogical()) return tblName(tbl);
+  return tblPhys(tbl);
 }
 
 // ── Un diálogo propio con campos ─────────────────────────────────────────────
@@ -2369,14 +2421,18 @@ function renderDesigner() {
   drawDesignEdges();
   renderTree();
   renderPalette();
+  renderViewToggle();
   renderStatus();
   renderVersionNote();
   // Si el editor de una tabla está abierto, sus filas se rehacen también: si no,
   // cambiar ahí un tipo dejaría a la vista los controles del tipo anterior.
   if (dzEditorRefresh && !dzKeepEditorRows) dzEditorRefresh();
   // Los esquemas solo se muestran donde existen: en MySQL el esquema ES la base
-  // de datos y en SQLite no hay ninguno.
-  const verSchemas = !!dz?.supports_schemas;
+  // de datos y en SQLite no hay ninguno. Y en la vista lógica tampoco: un
+  // esquema es una carpeta de la base y no significa nada en un modelo de
+  // negocio. Esta pasada va al final y pisa lo que pusieran las tarjetas, así
+  // que la condición tiene que estar entera aquí.
+  const verSchemas = !!dz?.supports_schemas && !dzLogical();
   document.querySelectorAll(".dz-schema-only").forEach((el) => { el.hidden = !verSchemas; });
 }
 
@@ -2722,12 +2778,17 @@ function buildColRow(tbl, col, idx) {
   const name = document.createElement("input");
   name.type = "text";
   name.className = "dz-c-name";
-  name.value = col.name;
-  name.placeholder = t("dz.colName");
+  name.value = dzLogical() ? col.logical : col.name;
+  name.placeholder = dzLogical() ? col.name || t("dz.colName") : t("dz.colName");
   name.addEventListener("input", () => {
-    const antes = col.name;
-    col.name = name.value;
-    renameColInRelations(tbl, antes, col.name);
+    if (dzLogical()) {
+      // El nombre lógico no lo nombra nada: no hay relaciones que arrastrar.
+      col.logical = name.value;
+    } else {
+      const antes = col.name;
+      col.name = name.value;
+      renameColInRelations(tbl, antes, col.name);
+    }
     saveDesign();
     renderCanvasKeepingEditor();
   });
@@ -2812,6 +2873,10 @@ function tableIsDependent(tbl) {
  *  siempre, también cuando admite nulos: en un diagrama que se mira de lejos,
  *  que falte una palabra no se distingue de que nadie la haya decidido. */
 function dzColLine(tbl, col) {
+  // En lógico, solo el nombre. Un tipo de motor no existe en un modelo de
+  // negocio, y enseñar `varchar(500)` en una vista que se llama lógica sería
+  // decir que sí existe.
+  if (dzLogical()) return colDisplay(col) + (colIsFk(tbl, col) ? " (FK)" : "");
   let s = col.name + ": " + fullType(col);
   if (col.auto && dz) s += " " + dzAutoLabel(col.auto);
   s += col.pk || col.nn ? " NOT NULL" : " NULL";
@@ -2886,11 +2951,11 @@ function buildDesignCard(tbl) {
 
   const nombre = document.createElement("span");
   nombre.className = "dz-name-ro";
-  nombre.textContent = tbl.name;
+  nombre.textContent = tblName(tbl);
 
   const esquema = document.createElement("span");
   esquema.className = "dz-schema-ro dz-schema-only";
-  esquema.hidden = !dz?.supports_schemas;
+  esquema.hidden = !dz?.supports_schemas || dzLogical();
   esquema.textContent = tblSchema(tbl);
   esquema.title = t("dz.schemaOf");
 
@@ -2989,17 +3054,28 @@ function openTableEditor(tbl) {
   const arriba = document.createElement("div");
   arriba.className = "dz-ed-head";
 
+  // En lógico se escribe el nombre lógico, en físico el físico. La vista manda
+  // qué nombre se ve Y cuál se escribe: si se vieran los dos a la vez habría que
+  // explicar cuál es cuál en cada caja.
   const lblNombre = document.createElement("label");
   const spNombre = document.createElement("span");
-  spNombre.textContent = t("dz.tableName");
+  spNombre.textContent = dzLogical() ? t("dz.logicalName") : t("dz.tableName");
   const inNombre = document.createElement("input");
   inNombre.type = "text";
-  inNombre.value = tbl.name;
-  inNombre.addEventListener("input", () => { tbl.name = inNombre.value; saveDesign(); renderCanvasKeepingEditor(); });
+  inNombre.value = dzLogical() ? tbl.logical : tbl.name;
+  // Vacío quiere decir «el mismo que el físico», y el marcador de posición lo
+  // enseña para que no parezca que falta algo.
+  if (dzLogical()) inNombre.placeholder = tbl.name;
+  inNombre.addEventListener("input", () => {
+    if (dzLogical()) tbl.logical = inNombre.value;
+    else tbl.name = inNombre.value;
+    saveDesign();
+    renderCanvasKeepingEditor();
+  });
   lblNombre.append(spNombre, inNombre);
   arriba.appendChild(lblNombre);
 
-  if (dz?.supports_schemas) {
+  if (dz?.supports_schemas && !dzLogical()) {
     const lblEsq = document.createElement("label");
     const spEsq = document.createElement("span");
     spEsq.textContent = t("dz.schema");
@@ -3063,8 +3139,11 @@ function openTableEditor(tbl) {
   // de `uniqueidentifier` (sin longitud) y una de `varchar(500)` se lean como
   // una tabla y no como dos filas de anchos distintos.
   const th = document.createElement("div");
-  th.className = "dz-col dz-ed-th";
-  for (const txt of [t("dz.colName"), t("dz.colType"), t("dz.thAuto"), "PK", "NN"]) {
+  th.className = "dz-col dz-ed-th" + (dzLogical() ? " logica" : "");
+  const cabeceras = dzLogical()
+    ? [t("dz.logicalCol"), "PK", "NN"]
+    : [t("dz.colName"), t("dz.colType"), t("dz.thAuto"), "PK", "NN"];
+  for (const txt of cabeceras) {
     const sp = document.createElement("span");
     sp.textContent = txt;
     th.appendChild(sp);
@@ -3072,7 +3151,7 @@ function openTableEditor(tbl) {
   body.appendChild(th);
 
   const ul = document.createElement("ul");
-  ul.className = "dz-cols dz-ed-cols";
+  ul.className = "dz-cols dz-ed-cols" + (dzLogical() ? " logica" : "");
   body.appendChild(ul);
 
   const pintar = () => {
@@ -3359,8 +3438,8 @@ function relColFields(hija, padre, clave, proponer) {
     return {
       key: "c" + i,
       label: t("dz.relMigrate")
-        .replace("{p}", tblLabel(padre) + "." + c.name)
-        .replace("{t}", tblLabel(hija)),
+        .replace("{p}", tblPhys(padre) + "." + c.name)
+        .replace("{t}", tblPhys(hija)),
       type: "select",
       options: opciones,
       value: propuesto,
@@ -3466,7 +3545,7 @@ function makeBridge(a, b) {
   renderDesigner();
   dzSelect("table", puente.id);
   const el = document.getElementById("dz-status");
-  if (el) el.textContent = t("dz.bridgeMade").replace("{t}", tblLabel(puente));
+  if (el) el.textContent = t("dz.bridgeMade").replace("{t}", tblPhys(puente));
 }
 
 /** El diálogo de la relación, como el de ERwin: el nombre, las columnas que la
@@ -3693,6 +3772,21 @@ const DZ_TOOLS = [
   { id: "m2m", key: "dz.toolM2M", svg: '<path d="M3 5l14 10M3 15L17 5"/><circle cx="3" cy="5" r="1.6"/><circle cx="3" cy="15" r="1.6"/><circle cx="17" cy="5" r="1.6"/><circle cx="17" cy="15" r="1.6"/>' },
 ];
 
+/** Cambia de vista. Es solo cómo se mira: no toca ni un dato del modelo. */
+function setView(v) {
+  design.view = v === "logical" ? "logical" : "physical";
+  saveDesign();
+  renderDesigner();
+}
+
+function renderViewToggle() {
+  const l = document.getElementById("view-logical");
+  const f = document.getElementById("view-physical");
+  if (!l || !f) return;
+  l.classList.toggle("active", dzLogical());
+  f.classList.toggle("active", !dzLogical());
+}
+
 function dzSetTool(id) {
   dzTool = id;
   renderPalette();
@@ -3878,8 +3972,8 @@ function renderStatus() {
       const lado = (l) => (l.length > 1 ? `(${l.join(", ")})` : l[0]);
       const acciones = [r.onDelete ? "ON DELETE " + r.onDelete : "", r.onUpdate ? "ON UPDATE " + r.onUpdate : ""].filter(Boolean).join(" \u00b7 ");
       el.textContent =
-        `${r.name ? r.name + ": " : ""}${tblLabel(ft)}.${lado(r.cols.map((p) => p.from))} \u2192 ` +
-        `${tblLabel(tt)}.${lado(r.cols.map((p) => p.to))}${acciones ? "  " + acciones : ""}`;
+        `${r.name ? r.name + ": " : ""}${tblPhys(ft)}.${lado(r.cols.map((p) => p.from))} \u2192 ` +
+        `${tblPhys(tt)}.${lado(r.cols.map((p) => p.to))}${acciones ? "  " + acciones : ""}`;
       return;
     }
   }
@@ -3889,6 +3983,13 @@ function renderStatus() {
     return;
   }
   if (!design.tables.length) { el.textContent = t("dz.treeEmpty"); return; }
+  if (dzLogical()) {
+    el.textContent =
+      t("dz.viewLogicalHint") + " \u00b7 " +
+      `${plural(design.tables.length, "dz.stTable1", "dz.stTables")} \u00b7 ` +
+      plural(design.relations.length, "dz.stRel1", "dz.stRels");
+    return;
+  }
   el.textContent =
     `${plural(design.tables.length, "dz.stTable1", "dz.stTables")} \u00b7 ` +
     `${plural(design.relations.length, "dz.stRel1", "dz.stRels")} \u00b7 ${t("dz.relHint")}`;
@@ -4060,6 +4161,9 @@ function showDesignOutput(title, text) {
 }
 
 // ── Enganches de la interfaz del diseñador ──
+document.getElementById("view-logical").addEventListener("click", () => setView("logical"));
+document.getElementById("view-physical").addEventListener("click", () => setView("physical"));
+
 document.getElementById("mode-design").addEventListener("click", () => showDesigner(true));
 document.getElementById("mode-compare").addEventListener("click", () => showDesigner(false));
 
@@ -4209,9 +4313,9 @@ function designToXml() {
 
   out += "  <tables>\n";
   for (const tbl of design.tables) {
-    out += `    <table${at("name", tbl.name)}${at("schema", tbl.schema)}${at("color", tbl.color)}${at("x", tbl.x)}${at("y", tbl.y)}${at("w", tbl.w)}${at("h", tbl.h)}>\n`;
+    out += `    <table${at("name", tbl.name)}${at("logical", tbl.logical)}${at("schema", tbl.schema)}${at("color", tbl.color)}${at("x", tbl.x)}${at("y", tbl.y)}${at("w", tbl.w)}${at("h", tbl.h)}>\n`;
     for (const c of tbl.columns) {
-      out += `      <column${at("name", c.name)}${at("type", fullType(c))}${at("auto", c.auto)}${c.pk ? ' pk="true"' : ""}${c.nn ? ' nn="true"' : ""} />\n`;
+      out += `      <column${at("name", c.name)}${at("logical", c.logical)}${at("type", fullType(c))}${at("auto", c.auto)}${c.pk ? ' pk="true"' : ""}${c.nn ? ' nn="true"' : ""} />\n`;
     }
     out += "    </table>\n";
   }
@@ -4275,6 +4379,7 @@ function xmlToDesign(texto) {
     const tbl = {
       id: "t" + d.seq++,
       name: te.getAttribute("name") || "tabla",
+      logical: te.getAttribute("logical") || "",
       schema: te.getAttribute("schema") || "",
       color: te.getAttribute("color") || "",
       x: Number(te.getAttribute("x")) || 20,
@@ -4287,6 +4392,7 @@ function xmlToDesign(texto) {
       const p = splitType(ce.getAttribute("type") || "");
       tbl.columns.push({
         name: ce.getAttribute("name") || "columna",
+        logical: ce.getAttribute("logical") || "",
         type: p.type,
         a: p.a,
         b: p.b,
