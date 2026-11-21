@@ -133,6 +133,12 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   `FOREIGN KEY (a, b)`. A column that leaves the key is never deleted from the child: it
   keeps its data. Relationships you pointed at some other column on purpose are left
   alone, and so is a table that references itself, where no automatic answer would do.
+- 🧰 **A palette: pick the kind first, then drag.** Identifying, non-identifying or
+  many-to-many, chosen before you draw, the way ERwin does it. Identifying puts the
+  migrated key *inside* the child's primary key — solid line, rounded corners — and
+  non-identifying leaves it out. The kind is never stored: it IS where the columns sit, so
+  the label can't say one thing while the model says another. Many-to-many builds the
+  bridge table with both keys. The palette fires once and hands the arrow back.
 - 🗂️ **Design mode is a workspace, not a page.** It takes the whole window: an object
   tree on the left (tables, relations, schemas, each with its count), the canvas filling
   everything else, and a status bar that says what is selected — ERwin's Model Explorer,

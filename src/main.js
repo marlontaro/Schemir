@@ -26,6 +26,16 @@ const I18N = {
     "dz.empty": "Añade una tabla para empezar tu modelo.",
     "dz.relations": "Relaciones (claves foráneas)",
     "dz.treeHead": "Modelo",
+    "dz.toolSelect": "Seleccionar",
+    "dz.toolTable": "Tabla nueva · pulsa en el lienzo",
+    "dz.toolIdent": "Relación identificadora · la clave entra en la primaria de la hija",
+    "dz.toolNoIdent": "Relación no identificadora · la clave queda fuera de la primaria",
+    "dz.toolM2M": "Muchos a muchos · crea la tabla puente",
+    "dz.toolHint": "Arrastra del padre a la hija",
+    "dz.relType": "Tipo de relación",
+    "dz.typeIdent": "identificadora (la clave entra en la primaria)",
+    "dz.typeNoIdent": "no identificadora (la clave queda fuera)",
+    "dz.bridgeMade": "{t}: tabla puente creada con las dos claves.",
     "dz.treeTables": "Tablas",
     "dz.treeRels": "Relaciones",
     "dz.treeSchemas": "Esquemas",
@@ -251,6 +261,16 @@ const I18N = {
     "dz.empty": "Add a table to start your model.",
     "dz.relations": "Relations (foreign keys)",
     "dz.treeHead": "Model",
+    "dz.toolSelect": "Select",
+    "dz.toolTable": "New table · click on the canvas",
+    "dz.toolIdent": "Identifying relationship · the key joins the child’s primary key",
+    "dz.toolNoIdent": "Non-identifying relationship · the key stays out of the primary key",
+    "dz.toolM2M": "Many to many · creates the bridge table",
+    "dz.toolHint": "Drag from parent to child",
+    "dz.relType": "Relationship type",
+    "dz.typeIdent": "identifying (the key joins the primary key)",
+    "dz.typeNoIdent": "non-identifying (the key stays out)",
+    "dz.bridgeMade": "{t}: bridge table created with both keys.",
     "dz.treeTables": "Tables",
     "dz.treeRels": "Relations",
     "dz.treeSchemas": "Schemas",
@@ -2329,6 +2349,7 @@ function renderDesigner() {
   for (const tbl of design.tables) canvas.appendChild(buildDesignCard(tbl));
   drawDesignEdges();
   renderTree();
+  renderPalette();
   renderStatus();
   renderVersionNote();
   // Si el editor de una tabla está abierto, sus filas se rehacen también: si no,
@@ -2820,6 +2841,15 @@ function buildDesignCard(tbl) {
   // Pulsar la tarjeta la selecciona en el árbol: el lienzo y el árbol son dos
   // vistas de lo mismo y señalar en una tiene que verse en la otra.
   card.addEventListener("mousedown", () => dzSelect("table", tbl.id));
+  // Con una herramienta de relación armada, la tarjeta ENTERA es la agarradera:
+  // se sale del padre y se suelta en la hija, sin apuntar a una columna. En
+  // captura para adelantarse al arrastre de mover y a la selección, que si no
+  // se quedarían con el ratón antes de llegar aquí.
+  card.addEventListener("mousedown", (e) => {
+    if (dzTool === "select" || dzTool === "table") return;
+    if (e.target.closest("button, input, select")) return;
+    startLink(e, tbl, null);
+  }, true);
   card.addEventListener("dblclick", (e) => {
     if (e.target.closest("button, .dz-resize, .dz-grip")) return;
     openTableEditor(tbl);
@@ -3147,7 +3177,10 @@ function startLink(e, tbl, col) {
     y: ev.clientY - caja.top + canvas.scrollTop,
   });
   const inicio = punto(e);
-  dzLink = { tbl, col, from: inicio, to: inicio, movido: false };
+  // La herramienta se guarda al empezar: si cambia a mitad del arrastre, manda
+  // la que estaba cuando se pulsó. Con la flecha, lo de siempre.
+  const tipo = dzTool === "select" || dzTool === "table" ? "noident" : dzTool;
+  dzLink = { tbl, col, tipo, from: inicio, to: inicio, movido: false };
   canvas.classList.add("dz-linking");
 
   const move = (ev) => {
@@ -3178,7 +3211,11 @@ function startLink(e, tbl, col) {
     if (destino.id === tirada.tbl.id && colDestino === tirada.col) return;
     // Se arrastra del PADRE a la HIJA, como en ERwin: se sale de la clave que se
     // va a heredar y se suelta sobre la tabla que la recibe.
-    await askRelation(destino, colDestino, tirada.tbl, tirada.col);
+    if (tirada.tipo === "m2m") makeBridge(tirada.tbl, destino);
+    else await askRelation(destino, colDestino, tirada.tbl, tirada.col, tirada.tipo);
+    // La herramienta se usa una vez y vuelve la flecha: si se quedara armada no
+    // se podría mover una tabla sin acordarse de desarmarla.
+    dzSetTool("select");
   };
   document.addEventListener("mousemove", move);
   document.addEventListener("mouseup", up);
@@ -3221,8 +3258,11 @@ function dzRelName(hija, padre) {
  *  con su mismo nombre y su mismo tipo —si no coincidieran, el motor no dejaría
  *  crear la clave foránea— y nace NOT NULL y fuera de la clave primaria, que es
  *  una relación NO identificadora: la fila de la hija existe por sí misma.
- *  Si la hija ya tiene esa columna se usa la suya y no se le toca el tipo. */
-function migrateKeyColumn(hija, nombre, colPadre) {
+ *  Si la hija ya tiene esa columna se usa la suya y no se le toca el tipo.
+ *
+ *  `identificadora` dice si nace DENTRO de la clave primaria de la hija, que es
+ *  toda la diferencia entre los dos tipos de relación. */
+function migrateKeyColumn(hija, nombre, colPadre, identificadora) {
   const ya = hija.columns.find((c) => c.name === nombre);
   if (ya) return ya;
   const col = {
@@ -3230,7 +3270,7 @@ function migrateKeyColumn(hija, nombre, colPadre) {
     type: colPadre ? colPadre.type : "",
     a: colPadre ? colPadre.a : "",
     b: colPadre ? colPadre.b : "",
-    pk: false,
+    pk: !!identificadora,
     nn: true,
     // Nunca un generador: ese valor lo pone el padre, no el motor.
     auto: "",
@@ -3291,18 +3331,114 @@ function relColsFromVals(vals, clave) {
   return cols;
 }
 
+/** Mete (o saca) de la clave primaria de la hija las columnas de la relación.
+ *
+ *  Eso ES el tipo de relación, no una etiqueta que lo acompañe: identificadora
+ *  quiere decir que la clave del padre forma parte de la clave de la hija, y por
+ *  eso su fila no existe sin él. No se guarda en ninguna parte —`relIsIdentifying`
+ *  lo lee de las columnas— así que el rótulo no puede decir una cosa mientras el
+ *  modelo dice otra, ni el script salir de una tercera. */
+function applyRelKind(hija, cols, identificadora) {
+  for (const p of cols) {
+    const c = hija.columns.find((x) => x.name === p.from);
+    if (c) c.pk = !!identificadora;
+  }
+}
+
+/** Los dos campos del diálogo que eligen el tipo. */
+function relKindField(identificadora) {
+  return {
+    key: "kind",
+    label: t("dz.relType"),
+    type: "select",
+    options: [
+      { value: "noident", label: t("dz.typeNoIdent") },
+      { value: "ident", label: t("dz.typeIdent") },
+    ],
+    value: identificadora ? "ident" : "noident",
+  };
+}
+
+/** Resuelve un muchos a muchos: crea la tabla puente con las dos claves.
+ *
+ *  Un muchos a muchos no existe en una base de datos; se escribe con una tabla
+ *  en medio. ERwin lo dibuja como una línea en el modelo lógico y lo resuelve al
+ *  pasar a físico; aquí, que es físico desde el principio, se crea ya.
+ *
+ *  La puente lleva su propia clave sustituta y las dos foráneas FUERA de la
+ *  primaria. Hacerla con una primaria compuesta de las dos claves también sería
+ *  correcto, pero esta es la forma que tienen las demás tablas que crea el
+ *  diseñador, y marcar PK en las dos columnas la convierte en la otra. */
+function makeBridge(a, b) {
+  // Una tabla consigo misma sí admite puente (una jerarquía de muchos a muchos),
+  // pero entonces las dos claves se llaman igual y hay que distinguirlas: eso lo
+  // resuelve `nombreLibre` poniendo el nombre de la tabla detrás.
+  const base = pascal(a.name) + pascal(b.name);
+  const usados = new Set(design.tables.map((x) => String(x.name || "").toLowerCase()));
+  let nombre = base;
+  for (let i = 2; usados.has(nombre.toLowerCase()); i++) nombre = base + i;
+
+  const puente = {
+    id: "t" + design.seq++,
+    name: nombre,
+    schema: a.schema || dz?.default_schema || "",
+    x: Math.round(((a.x || 20) + (b.x || 20)) / 2),
+    y: Math.round(Math.max(a.y || 20, b.y || 20)) + 220,
+    columns: [newPkColumn()],
+  };
+  design.tables.push(puente);
+
+  const nombreLibre = (padre, col) =>
+    puente.columns.some((x) => x.name === col.name) ? col.name + pascal(padre.name) : col.name;
+
+  for (const padre of [a, b]) {
+    const clave = parentKeyCols(padre, null);
+    const cols = [];
+    for (const c of clave) {
+      const nom = nombreLibre(padre, c);
+      migrateKeyColumn(puente, nom, c, false);
+      cols.push({ from: nom, to: c.name });
+    }
+    if (!cols.length) continue;
+    design.relations.push({
+      id: "r" + design.seq++,
+      name: dzRelName(puente, padre),
+      fromTable: puente.id,
+      toTable: padre.id,
+      cols,
+      onDelete: "",
+      onUpdate: "",
+    });
+  }
+  saveDesign();
+  renderDesigner();
+  dzSelect("table", puente.id);
+  const el = document.getElementById("dz-status");
+  if (el) el.textContent = t("dz.bridgeMade").replace("{t}", tblLabel(puente));
+}
+
 /** El diálogo de la relación, como el de ERwin: el nombre, las columnas que la
  *  hija hereda y qué hacer cuando el padre cambia o desaparece. */
-async function askRelation(hija, colHija, padre, colPadre) {
+async function askRelation(hija, colHija, padre, colPadre, tipo) {
   const acciones = dzActions();
   const clave = parentKeyCols(padre, colPadre);
   if (!clave.length) return;
   // El nombre que se propone en la hija es el mismo de la columna del padre,
   // que es como se lee un modelo de ERwin. Solo si se soltó justo encima de una
   // columna de la hija, y la clave es de una sola, manda esa.
-  const proponer = (c) => (clave.length === 1 && colHija ? colHija.name : c.name);
+  //
+  // Si la hija YA tiene una columna con ese nombre, se propone con el nombre de
+  // la tabla padre detrás: con la clave sustituta que pone el diseñador, todas
+  // las tablas tienen una columna `id`, y heredar `id` sobre `id` convertiría la
+  // propia clave de la hija en foránea sin que nadie lo haya pedido. Es el
+  // «rolename» de ERwin.
+  const proponer = (c) => {
+    if (clave.length === 1 && colHija) return colHija.name;
+    return hija.columns.some((x) => x.name === c.name) ? c.name + pascal(padre.name) : c.name;
+  };
   const campos = [
     { key: "name", label: t("dz.relName"), value: dzRelName(hija, padre) },
+    relKindField(tipo === "ident"),
     ...relColFields(hija, padre, clave, proponer),
     { key: "onDelete", label: t("dz.onDelete"), type: "select", options: acciones, value: "" },
     { key: "onUpdate", label: t("dz.onUpdate"), type: "select", options: acciones, value: "" },
@@ -3311,8 +3447,10 @@ async function askRelation(hija, colHija, padre, colPadre) {
   if (!vals) return;
   const cols = relColsFromVals(vals, clave);
   if (!cols.length) return;
+  const ident = vals.kind === "ident";
   // Ahora sí: las columnas que la hija no tenía se crean heredando las del padre.
-  for (const p of cols) migrateKeyColumn(hija, p.from, padre.columns.find((c) => c.name === p.to));
+  for (const p of cols) migrateKeyColumn(hija, p.from, padre.columns.find((c) => c.name === p.to), ident);
+  applyRelKind(hija, cols, ident);
   design.relations.push({
     id: "r" + design.seq++,
     name: vals.name.trim(),
@@ -3338,6 +3476,7 @@ async function editRelation(r) {
   const clave = r.cols.map((p) => padre.columns.find((c) => c.name === p.to) || { name: p.to });
   const vals = await askFields(t("dz.relTitle"), [
     { key: "name", label: t("dz.relName"), value: r.name || dzRelName(hija, padre) },
+    relKindField(relIsIdentifying(r)),
     ...relColFields(hija, padre, clave, (c, i) => r.cols[i].from),
     { key: "onDelete", label: t("dz.onDelete"), type: "select", options: acciones, value: r.onDelete || "" },
     { key: "onUpdate", label: t("dz.onUpdate"), type: "select", options: acciones, value: r.onUpdate || "" },
@@ -3345,7 +3484,9 @@ async function editRelation(r) {
   if (!vals) return;
   const cols = relColsFromVals(vals, clave);
   if (!cols.length) return;
-  for (const p of cols) migrateKeyColumn(hija, p.from, padre.columns.find((c) => c.name === p.to));
+  const ident = vals.kind === "ident";
+  for (const p of cols) migrateKeyColumn(hija, p.from, padre.columns.find((c) => c.name === p.to), ident);
+  applyRelKind(hija, cols, ident);
   Object.assign(r, { name: vals.name.trim(), cols, onDelete: vals.onDelete, onUpdate: vals.onUpdate });
   saveDesign();
   renderDesigner();
@@ -3461,6 +3602,48 @@ function drawDesignEdges() {
     goma.setAttribute("x2", dzLink.to.x);
     goma.setAttribute("y2", dzLink.to.y);
     svg.appendChild(goma);
+  }
+}
+
+/** La herramienta elegida en la paleta. Con `select` el lienzo se comporta
+ *  como siempre: se arrastran las tablas y se tira de las agarraderas. */
+let dzTool = "select";
+
+/** Los dibujos de la paleta. En `svg`, el cuerpo de un `<svg viewBox="0 0 20 20">`.
+ *
+ *  La diferencia entre identificadora y no identificadora se ve en el icono
+ *  igual que se ve en el diagrama: la línea continua y la discontinua. Es la
+ *  misma gramática en los dos sitios, así que no hay nada nuevo que aprender. */
+const DZ_TOOLS = [
+  { id: "select", key: "dz.toolSelect", svg: '<path d="M5 3l10 7-4.2 1.2L13 16l-2 .8-2.1-4.7L5 15z"/>' },
+  { id: "table", key: "dz.toolTable", svg: '<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M3 8h14"/>' },
+  { id: "ident", key: "dz.toolIdent", svg: '<path d="M2 10h16"/><path d="M14 6l4 4-4 4"/>' },
+  { id: "noident", key: "dz.toolNoIdent", svg: '<path d="M2 10h3M7.5 10h3M13 10h2" /><path d="M14 6l4 4-4 4"/>' },
+  { id: "m2m", key: "dz.toolM2M", svg: '<path d="M3 5l14 10M3 15L17 5"/><circle cx="3" cy="5" r="1.6"/><circle cx="3" cy="15" r="1.6"/><circle cx="17" cy="5" r="1.6"/><circle cx="17" cy="15" r="1.6"/>' },
+];
+
+function dzSetTool(id) {
+  dzTool = id;
+  renderPalette();
+  const canvas = document.getElementById("design-canvas");
+  if (canvas) canvas.classList.toggle("dz-armed", id !== "select");
+  renderStatus();
+}
+
+function renderPalette() {
+  const caja = document.getElementById("dz-palette");
+  if (!caja) return;
+  caja.replaceChildren();
+  for (const h of DZ_TOOLS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "dz-tool" + (dzTool === h.id ? " active" : "");
+    b.title = t(h.key);
+    b.innerHTML =
+      '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" ' +
+      'stroke-linecap="round" stroke-linejoin="round">' + h.svg + "</svg>";
+    b.addEventListener("click", () => dzSetTool(h.id));
+    caja.appendChild(b);
   }
 }
 
@@ -3620,6 +3803,11 @@ function renderStatus() {
         `${tblLabel(tt)}.${lado(r.cols.map((p) => p.to))}${acciones ? "  " + acciones : ""}`;
       return;
     }
+  }
+  if (dzTool !== "select") {
+    const h = DZ_TOOLS.find((x) => x.id === dzTool);
+    el.textContent = t(h.key) + (dzTool === "table" ? "" : " \u00b7 " + t("dz.toolHint"));
+    return;
   }
   if (!design.tables.length) { el.textContent = t("dz.treeEmpty"); return; }
   el.textContent =
@@ -3818,6 +4006,35 @@ document.getElementById("add-table").addEventListener("click", () => {
 });
 
 document.getElementById("add-schema").addEventListener("click", () => askNewSchema().then(renderDesigner));
+
+// Con la herramienta de tabla armada, se pulsa en el lienzo y la tabla nace
+// ahí. Es la diferencia entre colocar y que te la coloquen: el botón «+ Tabla»
+// la deja donde le toca por orden, y en un modelo grande eso casi nunca es
+// donde la quieres.
+document.getElementById("design-canvas").addEventListener("mousedown", (e) => {
+  if (dzTool !== "table" || e.target.closest(".dz-table")) return;
+  const canvas = e.currentTarget;
+  const caja = canvas.getBoundingClientRect();
+  design.tables.push({
+    id: "t" + design.seq++,
+    name: "tabla_" + (design.tables.length + 1),
+    schema: dz?.default_schema || "",
+    x: Math.round(e.clientX - caja.left + canvas.scrollLeft),
+    y: Math.round(e.clientY - caja.top + canvas.scrollTop),
+    columns: [newPkColumn()],
+  });
+  saveDesign();
+  renderDesigner();
+  dzSetTool("select");
+});
+
+// Escape desarma la herramienta. Un modal se queda con su propio Escape, y
+// mientras hay uno abierto no hay ninguna armada, así que no se pisan.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || dzTool === "select") return;
+  if (document.querySelector(".dz-modal-back")) return;
+  dzSetTool("select");
+});
 
 document.getElementById("rel-add").addEventListener("click", async () => {
   if (design.tables.length < 1) return;

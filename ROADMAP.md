@@ -121,6 +121,21 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **La paleta: se elige el tipo antes de arrastrar**, como en ERwin. Identificadora, no
+  identificadora o muchos a muchos. La identificadora mete la clave heredada DENTRO de la
+  primaria de la hija —línea continua y esquinas redondeadas— y la otra la deja fuera. El
+  tipo no se guarda en ninguna parte: ES dónde están las columnas, así que el rótulo no
+  puede decir una cosa mientras el modelo dice otra. Cambiarlo en el diálogo mueve las
+  columnas de verdad. La herramienta se usa una vez y vuelve la flecha, para no tener que
+  acordarse de desarmarla antes de mover una tabla.
+- **El muchos a muchos crea la tabla puente**, que es como se escribe en una base de
+  datos: clave sustituta propia y las dos foráneas fuera de la primaria, la forma que
+  tienen las demás tablas del diseñador. Marcar PK en las dos columnas la convierte en la
+  otra forma, la de primaria compuesta.
+- **La clave heredada no pisa la de la hija.** Con la clave sustituta que pone el
+  diseñador todas las tablas tienen una columna `id`, y heredar `id` sobre `id` habría
+  convertido la propia clave de la hija en foránea; ahora se propone `idRol`, con el
+  nombre del padre detrás. Es el «rolename» de ERwin.
 - **El modo diseño es un sitio de trabajo, no una página.** Se queda con la ventana
   entera: árbol de objetos a la izquierda —tablas, relaciones y esquemas, cada rama con su
   cuenta—, el lienzo llenando el resto y una barra abajo que dice qué hay seleccionado.

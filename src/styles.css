@@ -537,6 +537,27 @@ body.dz-full #design-output {
   margin: 0; pointer-events: none;
 }
 
+/* La paleta: se elige la herramienta y luego se arrastra, como en ERwin.
+   Vertical y pegada al lienzo porque no gasta alto, y la barra de arriba ya va
+   llena. */
+.dz-palette {
+  flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px;
+  padding: 6px 4px; background: var(--surface); border-right: 1px solid var(--border);
+}
+.dz-tool {
+  width: 28px; height: 28px; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.dz-tool:hover { background: var(--surface-2); color: var(--text); }
+.dz-tool.active { background: var(--surface-3); border-color: var(--accent); color: var(--accent); }
+.dz-tool svg { width: 18px; height: 18px; }
+/* Con una herramienta armada el lienzo entero es zona de dibujo: la cruz lo
+   dice antes de que se pulse, que es cuando sirve saberlo. */
+.designer-canvas.dz-armed,
+.designer-canvas.dz-armed .dz-table,
+.designer-canvas.dz-armed .dz-head { cursor: crosshair; }
+
 /* El árbol de objetos: el Model Explorer. */
 .dz-tree {
   flex: 0 0 236px; display: flex; flex-direction: column; min-height: 0;
