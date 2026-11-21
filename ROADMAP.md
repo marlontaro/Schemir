@@ -121,6 +121,25 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **El modelo se valida contra el catálogo del motor.** La lista que ERwin saca al validar,
+  con la diferencia que es la razón de ser de Schemir: aquí el motor y su versión forman
+  parte de la pregunta. `varchar` sin longitud se escribe igual de bien en cualquier parte y
+  SQL Server lo acepta dándole UNO, así que la tabla se crea sin una queja y el error
+  aparece meses después al guardar el primer nombre; en PostgreSQL ese mismo `varchar` es
+  legítimo y significa «sin límite». Eso no lo ve quien lee el script: lo ve quien conoce el
+  catálogo, y el catálogo ya está cargado. Encuentra tipos que el motor no tiene, tipos que
+  exigen una versión más nueva que la elegida —y dice **cuál** columna, que es lo que la
+  nota de la barra no decía—, longitudes que faltan o que pasan del máximo, precisión y
+  escala imposibles, columnas repetidas, tablas sin nombre, sin columnas o sin primaria, y
+  foráneas con los dos lados de distinto tipo, apuntando a media clave o a una tabla que no
+  tiene ninguna. Dos niveles y no cinco: **error** es lo que el motor va a rechazar,
+  **aviso** es lo que funcionará pero probablemente no es lo que se quería. Nada de esto
+  BLOQUEA generar el script —un diseñador que no deja mirar el SQL hasta que todo esté
+  perfecto estorba justo cuando más falta hace ver por dónde va la cosa—: los errores se
+  escriben en la cabecera del script, así que si alguien lo copia y el motor lo rechaza, el
+  propio script dice por qué. En el árbol salen al final y **solo si hay alguno**, porque una
+  rama que anuncia cero problemas en todos los modelos deja de leerse, y entonces tampoco se
+  lee el día que marca tres. Un clic lleva al objeto y dos lo abren para arreglarlo.
 - **Frases verbales: el diagrama se puede leer en voz alta.** Dos por relación, una por
   sentido, porque las dos se leen y no dicen lo mismo: «Pedido de venta contiene Línea del
   pedido» y «Línea del pedido pertenece a Pedido de venta». Cada una va pegada al extremo

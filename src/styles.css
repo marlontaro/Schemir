@@ -646,6 +646,14 @@ body.dz-full #design-output {
   transition: transform 0.12s ease; opacity: 0.6;
 }
 .dz-tr-group.cerrado .dz-tr-head::before { transform: rotate(0deg); }
+/* Los problemas del modelo. Los dos colores que el resto de la pantalla ya usa
+   para lo roto y lo dudoso, y nada mas: la fila del arbol es estrecha y un
+   icono ahi dentro se convierte en un borron de ocho pixeles. */
+.dz-tr-item.dz-tr-error > .dz-tr-txt { color: var(--diff); }
+.dz-tr-item.dz-tr-aviso > .dz-tr-txt { color: #d97706; }
+.dz-tr-group.dz-tr-g-error > .dz-tr-head > .dz-tr-n { color: var(--diff); }
+.dz-tr-group.dz-tr-g-aviso > .dz-tr-head > .dz-tr-n { color: #d97706; }
+
 .dz-tr-n { margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--muted-2); }
 .dz-tr-item {
   display: flex; align-items: center; gap: 4px; cursor: default;
