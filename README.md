@@ -133,6 +133,12 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   `FOREIGN KEY (a, b)`. A column that leaves the key is never deleted from the child: it
   keeps its data. Relationships you pointed at some other column on purpose are left
   alone, and so is a table that references itself, where no automatic answer would do.
+- 🏷️ **Domains: types with a name.** Define `Codigo = varchar(500)` once and point
+  columns at it. Change the domain and every column follows, script included — the domain
+  owns the type and the column keeps a copy that is refreshed before anything reads it.
+  Deleting a domain never changes a type: the columns keep what they have and only lose
+  the link. In the logical view a column reads `Sucursal: Codigo`, because a domain is a
+  business concept and the only kind of type that belongs there.
 - 🔀 **Logical and physical, one model seen twice.** Switch the view and the canvas
   reads `Pedido de venta · Fecha de emisión` instead of `dbo.pedido · fecha`. The physical
   name stays the model's identity — relations point at physical columns and the script is

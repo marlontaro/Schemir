@@ -26,6 +26,16 @@ const I18N = {
     "dz.empty": "Añade una tabla para empezar tu modelo.",
     "dz.relations": "Relaciones (claves foráneas)",
     "dz.treeHead": "Modelo",
+    "dz.domains": "Dominios",
+    "dz.domainNew": "Dominio nuevo",
+    "dz.domainTitle": "Dominio",
+    "dz.domainName": "Nombre del dominio",
+    "dz.domainAdd": "Dominio nuevo",
+    "dz.domainUsed": "{n} columnas lo usan",
+    "dz.domainUsed1": "1 columna lo usa",
+    "dz.domainFree": "no lo usa ninguna columna",
+    "dz.domainDel": "{t}: quitarlo deja a sus columnas con el tipo que tienen ahora. ¿Seguir?",
+    "dz.domainDup": "Ya hay un dominio con ese nombre.",
     "dz.viewLogical": "Lógico",
     "dz.viewPhysical": "Físico",
     "dz.viewLogicalHint": "Vista lógica: nombres de negocio, sin tipos de motor",
@@ -276,6 +286,16 @@ const I18N = {
     "dz.empty": "Add a table to start your model.",
     "dz.relations": "Relations (foreign keys)",
     "dz.treeHead": "Model",
+    "dz.domains": "Domains",
+    "dz.domainNew": "New domain",
+    "dz.domainTitle": "Domain",
+    "dz.domainName": "Domain name",
+    "dz.domainAdd": "New domain",
+    "dz.domainUsed": "{n} columns use it",
+    "dz.domainUsed1": "1 column uses it",
+    "dz.domainFree": "no column uses it",
+    "dz.domainDel": "{t}: removing it leaves its columns with the type they have now. Continue?",
+    "dz.domainDup": "There is already a domain with that name.",
     "dz.viewLogical": "Logical",
     "dz.viewPhysical": "Physical",
     "dz.viewLogicalHint": "Logical view: business names, no engine types",
@@ -2057,7 +2077,7 @@ function loadDesign() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem("schemir.design") || "null"); } catch {}
   if (!d || !Array.isArray(d.tables)) d = {};
-  return migrateDesign({ tables: [], relations: [], schemas: [], seq: 1, dialect: DZ_DIALECT_DEFAULT, version: "", ...d });
+  return migrateDesign({ tables: [], relations: [], schemas: [], domains: [], seq: 1, dialect: DZ_DIALECT_DEFAULT, version: "", ...d });
 }
 
 /** Pone al día un modelo guardado por una versión anterior del diseñador: antes
@@ -2065,6 +2085,7 @@ function loadDesign() {
  *  había ni esquemas ni nombre de relación. */
 function migrateDesign(d) {
   if (!Array.isArray(d.schemas)) d.schemas = [];
+  if (!Array.isArray(d.domains)) d.domains = [];
   // La vista es una preferencia del modelo, como el motor y la versión: al
   // abrirlo se vuelve a la que se estaba mirando.
   d.view = d.view === "logical" ? "logical" : "physical";
@@ -2079,6 +2100,7 @@ function migrateDesign(d) {
       col.b = col.b ?? "";
       col.auto = col.auto || "";
       if (typeof col.logical !== "string") col.logical = "";
+      if (typeof col.domain !== "string") col.domain = "";
     }
   }
   for (const r of d.relations) {
@@ -2388,6 +2410,56 @@ function normalizeAuto() {
   if (cambio) saveDesign();
 }
 
+/** El dominio por su nombre, o `null`. */
+function dzDomain(nombre) {
+  if (!nombre) return null;
+  return (design.domains || []).find((d) => d.name === nombre) || null;
+}
+
+/** Copia a cada columna el tipo de su dominio.
+ *
+ *  El dominio es el dueño del tipo y la columna guarda una copia, que esta
+ *  pasada refresca antes de que nadie la lea —igual que `normalizeAuto`—. Se
+ *  hace así, y no resolviendo al vuelo, porque `col.type` lo leen el exportador
+ *  de SQL, el de Prisma, el cálculo de la versión mínima y la tarjeta: dejar la
+ *  copia siempre al día cuesta una pasada y no obliga a acordarse del dominio
+ *  en cada uno de esos sitios.
+ *
+ *  Un dominio que ya no existe no borra nada: la columna se queda con el tipo
+ *  que tiene y solo pierde el vínculo. Quitar un dominio es ordenar, no tirar
+ *  trabajo. */
+function applyDomains() {
+  let cambio = false;
+  for (const tbl of design.tables) {
+    for (const c of tbl.columns) {
+      if (!c.domain) continue;
+      const d = dzDomain(c.domain);
+      if (!d) { c.domain = ""; cambio = true; continue; }
+      if (c.type !== d.type || c.a !== d.a || c.b !== d.b || c.auto !== d.auto) {
+        c.type = d.type;
+        c.a = d.a;
+        c.b = d.b;
+        c.auto = d.auto;
+        cambio = true;
+      }
+    }
+  }
+  if (cambio) saveDesign();
+}
+
+/** Cuántas columnas usan un dominio. */
+function dzDomainUses(nombre) {
+  let n = 0;
+  for (const tbl of design.tables) for (const c of tbl.columns) if (c.domain === nombre) n++;
+  return n;
+}
+
+/** El dominio como se lee de un vistazo: `Codigo · varchar(500)`. */
+function dzDomainLabel(d) {
+  const tipo = fullType(d) + (d.auto && dz ? " " + dzAutoLabel(d.auto) : "");
+  return tipo ? `${d.name} \u00b7 ${tipo}` : d.name;
+}
+
 /** Mientras se escribe en el editor NO hay que rehacer sus filas: rehacerlas
  *  destruye el input donde está el cursor y se pierde lo tecleado. */
 let dzKeepEditorRows = false;
@@ -2405,6 +2477,9 @@ function renderCanvasKeepingEditor() {
 function renderDesigner() {
   const canvas = document.getElementById("design-canvas");
   if (!canvas) return;
+  // Antes que `normalizeAuto`: esa valida el generador contra el tipo, y el
+  // tipo puede acabar de llegar del dominio.
+  applyDomains();
   normalizeAuto();
   canvas.innerHTML = "";
   document.getElementById("design-empty").hidden = design.tables.length > 0;
@@ -2486,6 +2561,15 @@ function buildTypeCell(col) {
 
   const sel = document.createElement("select");
   sel.className = "dz-c-sel";
+  // Los dominios van los primeros: un dominio es una respuesta a «¿de qué tipo
+  // es esta columna?», igual que `varchar`, y prefiriendo el dominio cuando lo
+  // hay es como se evita repetir `varchar(500)` treinta veces.
+  if ((design.domains || []).length) {
+    const g = document.createElement("optgroup");
+    g.label = t("dz.domains");
+    for (const d of design.domains) g.appendChild(new Option(d.name, "__dom__" + d.name));
+    sel.appendChild(g);
+  }
   const groups = new Map();
   for (const ty of dz.types) {
     let g = groups.get(ty.category);
@@ -2502,7 +2586,7 @@ function buildTypeCell(col) {
   const known = dzFind(col.type);
   // Un tipo escrito a mano (o de otro motor) no se pierde al abrir el modelo.
   sel.appendChild(new Option(t("dz.typeOther"), "__other__"));
-  sel.value = known ? known.name : "__other__";
+  sel.value = col.domain ? "__dom__" + col.domain : known ? known.name : "__other__";
 
   const other = document.createElement("input");
   other.type = "text";
@@ -2532,6 +2616,18 @@ function buildTypeCell(col) {
   maxWrap.append(maxCb, document.createTextNode("MAX"));
 
   const refresh = () => {
+    // Con dominio no hay cifras que tocar aquí: las pone él, y editarlas en la
+    // columna haría que el dominio dejara de significar nada.
+    if (col.domain) {
+      other.hidden = true;
+      argA.hidden = true;
+      comma.hidden = true;
+      argB.hidden = true;
+      maxWrap.hidden = true;
+      sel.classList.remove("dz-warn");
+      sel.title = dzDomainLabel(dzDomain(col.domain) || { name: col.domain });
+      return;
+    }
     const ty = dzFind(col.type);
     const kind = ty ? ty.args.kind : "plain";
     const two = kind === "precision_scale";
@@ -2570,11 +2666,16 @@ function buildTypeCell(col) {
   };
 
   sel.addEventListener("change", () => {
-    if (sel.value === "__other__") {
+    if (sel.value.startsWith("__dom__")) {
+      col.domain = sel.value.slice(7);
+      // El tipo lo copia `applyDomains` al repintar.
+    } else if (sel.value === "__other__") {
+      col.domain = "";
       col.type = other.value.trim();
       col.a = "";
       col.b = "";
     } else {
+      col.domain = "";
       col.type = sel.value;
       // Al elegir el tipo se proponen sus cifras habituales (varchar(50),
       // decimal(18,0)), que es lo que hace ERwin y ahorra escribirlas.
@@ -2636,6 +2737,9 @@ function buildAutoCell(col) {
   const wrap = document.createElement("span");
   wrap.className = "dz-auto";
   if (!dz) return wrap;
+  // Con dominio, el generador es suyo: se cambia en el dominio y lo siguen
+  // todas sus columnas, que es justo para lo que sirve.
+  if (col.domain) return wrap;
 
   const base = String(col.type || "").toLowerCase();
   const esDe = (lista) => (lista || []).some((n) => n.toLowerCase() === base);
@@ -2876,7 +2980,12 @@ function dzColLine(tbl, col) {
   // En lógico, solo el nombre. Un tipo de motor no existe en un modelo de
   // negocio, y enseñar `varchar(500)` en una vista que se llama lógica sería
   // decir que sí existe.
-  if (dzLogical()) return colDisplay(col) + (colIsFk(tbl, col) ? " (FK)" : "");
+  if (dzLogical()) {
+    // El dominio SÍ sale en lógico: es un concepto del modelo, no del motor
+    // —«esto es un Código»—, y es la única forma de tipo que tiene sentido ahí.
+    const d = col.domain ? ": " + col.domain : "";
+    return colDisplay(col) + d + (colIsFk(tbl, col) ? " (FK)" : "");
+  }
   let s = col.name + ": " + fullType(col);
   if (col.auto && dz) s += " " + dzAutoLabel(col.auto);
   s += col.pk || col.nn ? " NOT NULL" : " NULL";
@@ -2896,6 +3005,19 @@ function buildCardRow(tbl, col) {
   grip.title = t("dz.dragHint");
   grip.addEventListener("mousedown", (e) => startLink(e, tbl, col));
 
+  // La llave de la clave primaria, como la de ERwin. Dibujada y no un emoji: a
+  // diez píxeles un emoji sale borroso, de un color que no se puede cambiar y
+  // distinto en cada sistema. Las filas que no son clave llevan el mismo hueco
+  // vacío, para que los nombres de todas empiecen en la misma columna.
+  const llave = document.createElementNS(SVGNS, "svg");
+  llave.setAttribute("class", "dz-ro-key");
+  llave.setAttribute("viewBox", "0 0 14 14");
+  if (col.pk) {
+    llave.innerHTML =
+      '<circle cx="4.4" cy="4.4" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
+      '<path d="M6.3 6.3L12 12M9.3 9.3l1.4-1.4M10.8 10.8l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>';
+  }
+
   const txt = document.createElement("span");
   txt.className = "dz-ro-txt";
   txt.textContent = dzColLine(tbl, col);
@@ -2903,7 +3025,7 @@ function buildCardRow(tbl, col) {
   // abrir el editor para leer un tipo largo.
   txt.title = txt.textContent;
 
-  li.append(grip, txt);
+  li.append(grip, llave, txt);
   return li;
 }
 
@@ -3548,6 +3670,120 @@ function makeBridge(a, b) {
   if (el) el.textContent = t("dz.bridgeMade").replace("{t}", tblPhys(puente));
 }
 
+/** El diálogo de un dominio: nombre y tipo. `dom` nulo crea uno nuevo.
+ *
+ *  Reutiliza los mismos controles del tipo que una columna, porque un dominio
+ *  es exactamente eso: un tipo con nombre. Mientras está abierto se engancha a
+ *  `dzEditorRefresh` para que cambiar el tipo rehaga sus controles, igual que
+ *  hace el editor de la tabla. */
+function openDomainEditor(dom) {
+  const nuevo = !dom;
+  // Se trabaja sobre una copia: si se cancela, el modelo no se ha enterado.
+  const d = nuevo
+    ? { name: "", type: dz ? (dzFind("varchar") || dz.types[0] || {}).name || "" : "", a: "", b: "", auto: "" }
+    : { ...dom };
+
+  const back = document.createElement("div");
+  back.className = "dz-modal-back";
+  const caja = document.createElement("div");
+  caja.className = "dz-modal dz-domain";
+
+  const head = document.createElement("div");
+  head.className = "dz-modal-head";
+  head.textContent = nuevo ? t("dz.domainNew") : t("dz.domainTitle");
+  caja.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "dz-modal-body";
+  caja.appendChild(body);
+
+  const aviso = document.createElement("p");
+  aviso.className = "dz-dom-warn";
+  aviso.hidden = true;
+
+  let inNombre = null;
+  const pintar = () => {
+    const foco = document.activeElement === inNombre;
+    const pos = inNombre ? inNombre.selectionStart : 0;
+    body.replaceChildren();
+
+    const lbl = document.createElement("label");
+    const sp = document.createElement("span");
+    sp.textContent = t("dz.domainName");
+    inNombre = document.createElement("input");
+    inNombre.type = "text";
+    inNombre.value = d.name;
+    inNombre.placeholder = "Codigo";
+    inNombre.addEventListener("input", () => { d.name = inNombre.value; aviso.hidden = true; });
+    lbl.append(sp, inNombre);
+
+    const lblTipo = document.createElement("label");
+    const spTipo = document.createElement("span");
+    spTipo.textContent = t("dz.colType");
+    const fila = document.createElement("div");
+    fila.className = "dz-dom-type";
+    fila.append(buildTypeCell(d), buildAutoCell(d));
+    lblTipo.append(spTipo, fila);
+
+    body.append(lbl, lblTipo, aviso);
+    if (foco && inNombre) { inNombre.focus(); inNombre.setSelectionRange(pos, pos); }
+  };
+  pintar();
+
+  const foot = document.createElement("div");
+  foot.className = "dz-modal-foot";
+  const cancelar = document.createElement("button");
+  cancelar.type = "button";
+  cancelar.className = "btn ghost";
+  cancelar.textContent = t("btn.cancel");
+  const ok = document.createElement("button");
+  ok.type = "button";
+  ok.className = "btn primary";
+  ok.textContent = t("btn.ok");
+  foot.append(cancelar, ok);
+  caja.appendChild(foot);
+
+  back.appendChild(caja);
+  document.body.appendChild(back);
+
+  const antes = dzEditorRefresh;
+  dzEditorRefresh = pintar;
+  const cerrar = () => {
+    dzEditorRefresh = antes;
+    document.removeEventListener("keydown", onKey);
+    back.remove();
+  };
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); cerrar(); } };
+  document.addEventListener("keydown", onKey);
+  cancelar.addEventListener("click", cerrar);
+  back.addEventListener("mousedown", (e) => { if (e.target === back) cerrar(); });
+
+  ok.addEventListener("click", () => {
+    const nombre = d.name.trim();
+    if (!nombre) return;
+    // Dos dominios con el mismo nombre no se podrían distinguir: las columnas
+    // los referencian por nombre.
+    const choca = (design.domains || []).some((x) => x !== dom && x.name === nombre);
+    if (choca) { aviso.textContent = t("dz.domainDup"); aviso.hidden = false; return; }
+    const viejo = dom ? dom.name : "";
+    const guardado = { name: nombre, type: d.type, a: d.a, b: d.b, auto: d.auto };
+    if (nuevo) design.domains.push(guardado);
+    else Object.assign(dom, guardado);
+    // Renombrarlo arrastra a sus columnas: si no, se quedarían apuntando a un
+    // dominio que ya no existe y perderían el vínculo sin que nadie lo pidiera.
+    if (viejo && viejo !== nombre) {
+      for (const tbl of design.tables) {
+        for (const c of tbl.columns) if (c.domain === viejo) c.domain = nombre;
+      }
+    }
+    saveDesign();
+    cerrar();
+    renderDesigner();
+  });
+
+  if (inNombre) inNombre.focus();
+}
+
 /** El diálogo de la relación, como el de ERwin: el nombre, las columnas que la
  *  hija hereda y qué hacer cuando el padre cambia o desaparece. */
 async function askRelation(hija, colHija, padre, colPadre, tipo) {
@@ -3844,7 +4080,7 @@ function marcarSeleccion() {
 }
 
 /** Una rama del árbol: el título con su cuenta y los hijos debajo. */
-function treeGroup(ul, clave, label, n, hijos) {
+function treeGroup(ul, clave, label, n, hijos, onAdd) {
   const li = document.createElement("li");
   li.className = "dz-tr-group";
   const head = document.createElement("div");
@@ -3854,6 +4090,15 @@ function treeGroup(ul, clave, label, n, hijos) {
   cuenta.className = "dz-tr-n";
   cuenta.textContent = n;
   head.appendChild(cuenta);
+  if (onAdd) {
+    const mas = document.createElement("button");
+    mas.type = "button";
+    mas.className = "dz-icon-btn dz-tr-add";
+    mas.textContent = "+";
+    mas.title = t("dz.domainAdd");
+    mas.addEventListener("click", (e) => { e.stopPropagation(); onAdd(); });
+    head.appendChild(mas);
+  }
   const sub = document.createElement("ul");
   sub.className = "dz-tr-sub";
   // Abierta o cerrada se recuerda mientras dure la sesión: rehacer el árbol en
@@ -3942,6 +4187,20 @@ function renderTree() {
     }
   });
 
+  treeGroup(ul, "domains", t("dz.domains"), (design.domains || []).length, (sub) => {
+    for (const d of design.domains || []) {
+      treeItem(sub, "domain", d.name, dzDomainLabel(d), () => openDomainEditor(d), () => {
+        if (!confirm(t("dz.domainDel").replace("{t}", d.name))) return;
+        // Quitar el dominio no toca el tipo de nadie: solo el vínculo, y de eso
+        // ya se encarga `applyDomains` al no encontrarlo.
+        design.domains = design.domains.filter((x) => x !== d);
+        if (dzSelEs("domain", d.name)) dzSel = null;
+        saveDesign();
+        renderDesigner();
+      });
+    }
+  }, () => openDomainEditor(null));
+
   if (dz?.supports_schemas) {
     const esquemas = dzSchemas();
     treeGroup(ul, "schemas", t("dz.treeSchemas"), esquemas.length, (sub) => {
@@ -3974,6 +4233,16 @@ function renderStatus() {
       el.textContent =
         `${r.name ? r.name + ": " : ""}${tblPhys(ft)}.${lado(r.cols.map((p) => p.from))} \u2192 ` +
         `${tblPhys(tt)}.${lado(r.cols.map((p) => p.to))}${acciones ? "  " + acciones : ""}`;
+      return;
+    }
+  }
+  if (dzSel && dzSel.kind === "domain") {
+    const d = dzDomain(dzSel.id);
+    if (d) {
+      const n = dzDomainUses(d.name);
+      el.textContent =
+        dzDomainLabel(d) + " \u00b7 " +
+        (n === 0 ? t("dz.domainFree") : n === 1 ? t("dz.domainUsed1") : t("dz.domainUsed").replace("{n}", n));
       return;
     }
   }
@@ -4230,7 +4499,7 @@ document.getElementById("clear-design").addEventListener("click", async () => {
   let ok = false;
   try { ok = await askConfirm(t("dz.clearConfirm")); } catch { ok = false; }
   if (!ok) return;
-  design = migrateDesign({ tables: [], relations: [], schemas: [], seq: 1, dialect: design.dialect, version: design.version });
+  design = migrateDesign({ tables: [], relations: [], schemas: [], domains: [], seq: 1, dialect: design.dialect, version: design.version });
   saveDesign();
   renderDesigner();
   document.getElementById("design-output").hidden = true;
@@ -4311,11 +4580,19 @@ function designToXml() {
     out += "  </schemas>\n";
   }
 
+  if ((design.domains || []).length) {
+    out += "  <domains>\n";
+    for (const d of design.domains) {
+      out += `    <domain${at("name", d.name)}${at("type", fullType(d))}${at("auto", d.auto)} />\n`;
+    }
+    out += "  </domains>\n";
+  }
+
   out += "  <tables>\n";
   for (const tbl of design.tables) {
     out += `    <table${at("name", tbl.name)}${at("logical", tbl.logical)}${at("schema", tbl.schema)}${at("color", tbl.color)}${at("x", tbl.x)}${at("y", tbl.y)}${at("w", tbl.w)}${at("h", tbl.h)}>\n`;
     for (const c of tbl.columns) {
-      out += `      <column${at("name", c.name)}${at("logical", c.logical)}${at("type", fullType(c))}${at("auto", c.auto)}${c.pk ? ' pk="true"' : ""}${c.nn ? ' nn="true"' : ""} />\n`;
+      out += `      <column${at("name", c.name)}${at("logical", c.logical)}${at("domain", c.domain)}${at("type", fullType(c))}${at("auto", c.auto)}${c.pk ? ' pk="true"' : ""}${c.nn ? ' nn="true"' : ""} />\n`;
     }
     out += "    </table>\n";
   }
@@ -4364,6 +4641,7 @@ function xmlToDesign(texto) {
     tables: [],
     relations: [],
     schemas: [],
+    domains: [],
     seq: 1,
     dialect: root.getAttribute("dialect") || DZ_DIALECT_DEFAULT,
     version: root.getAttribute("engine-version") || "",
@@ -4375,6 +4653,13 @@ function xmlToDesign(texto) {
   }
 
   const porNombre = new Map();
+  for (const de of root.querySelectorAll("domains > domain")) {
+    const nombre = de.getAttribute("name") || "";
+    if (!nombre) continue;
+    const p = splitType(de.getAttribute("type") || "");
+    d.domains.push({ name: nombre, type: p.type, a: p.a, b: p.b, auto: de.getAttribute("auto") || "" });
+  }
+
   for (const te of root.querySelectorAll("tables > table")) {
     const tbl = {
       id: "t" + d.seq++,
@@ -4393,6 +4678,7 @@ function xmlToDesign(texto) {
       tbl.columns.push({
         name: ce.getAttribute("name") || "columna",
         logical: ce.getAttribute("logical") || "",
+        domain: ce.getAttribute("domain") || "",
         type: p.type,
         a: p.a,
         b: p.b,

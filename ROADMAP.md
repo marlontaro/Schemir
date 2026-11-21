@@ -121,6 +121,19 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **Dominios: tipos con nombre, reutilizables.** Se define `Codigo = varchar(500)` una vez
+  y las columnas apuntan a él; se cambia el dominio y lo siguen todas, el script incluido.
+  El dominio es el dueño del tipo y la columna guarda una copia que se refresca antes de
+  que nadie la lea —como `normalizeAuto`—, porque `col.type` lo leen el exportador de SQL,
+  el de Prisma, el cálculo de la versión mínima y la tarjeta, y dejar la copia al día
+  cuesta una pasada en vez de acordarse del dominio en cada uno de esos sitios. Quitar un
+  dominio no cambia el tipo de nadie: las columnas se quedan con el que tienen y solo
+  pierden el vínculo, porque ordenar no es tirar trabajo. En lógico la columna se lee
+  `Sucursal: Codigo`, que es la única forma de tipo que significa algo en esa vista.
+- **La clave primaria lleva su llave**, dibujada y no un emoji: a diez píxeles un emoji
+  sale borroso, de un color que no se puede cambiar y distinto en cada sistema. Las filas
+  que no son clave llevan el mismo hueco vacío, para que los nombres empiecen todos en la
+  misma columna.
 - **Lógico y físico: el mismo modelo visto dos veces**, como el conmutador de ERwin. Se
   cambia de vista y el lienzo pone `Pedido de venta · Fecha de emisión` donde ponía
   `dbo.pedido · fecha`. Lo físico sigue siendo la identidad: las relaciones apuntan a
