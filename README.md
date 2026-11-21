@@ -437,8 +437,9 @@ Compara **datos de filas** (SQLite) produciendo
 `INSERT`/`UPDATE`/`DELETE`, dibuja un **diagrama ER interactivo** (exportable a PNG/SVG) e
 incluye un **diseñador ER** que **valida el modelo contra el catálogo del motor** —tipos que
 ese motor no tiene, longitudes que no admite, foráneas que no apuntan a una clave— antes de
-exportar a **SQL** y **Prisma**, y que recorta un modelo grande en **áreas temáticas**, cada
-una con su propia disposición. La interfaz es bilingüe
+exportar a **SQL** y **Prisma**, recorta un modelo grande en **áreas temáticas** —cada una
+con su propia disposición— y **deriva los nombres físicos de los lógicos** con un glosario y
+unas reglas de nomenclatura. La interfaz es bilingüe
 (ES/EN, autodetecta el idioma del sistema) con tema claro/oscuro/sistema.
 
 Descarga el instalador de tu sistema desde la [**última versión**](https://github.com/marlontaro/Schemir/releases/latest).

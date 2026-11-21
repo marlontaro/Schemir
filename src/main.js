@@ -73,6 +73,28 @@ const I18N = {
     "dz.areaOut": "{n} relaciones salen del \u00e1rea",
     "dz.areaRemove": "Quitar del \u00e1rea",
     "dz.areaNone": "sin \u00e1reas",
+    "dz.naming": "Nomenclatura",
+    "dz.nmTitle": "Nombres f\u00edsicos a partir de los l\u00f3gicos",
+    "dz.nmCase": "Forma",
+    "dz.nmMax": "Largo m\u00e1ximo",
+    "dz.nmMaxNone": "sin l\u00edmite",
+    "dz.nmWords": "Glosario",
+    "dz.nmWordsHint": "Una palabra por fila. Sin abreviatura, la palabra se cae del nombre.",
+    "dz.nmFrom": "Palabra",
+    "dz.nmTo": "Abreviatura",
+    "dz.nmDrop": "(se cae)",
+    "dz.nmAdd": "+ Palabra",
+    "dz.nmScope": "Aplicar a",
+    "dz.nmTables": "Tablas",
+    "dz.nmCols": "Columnas",
+    "dz.nmPreview": "Lo que va a cambiar",
+    "dz.nmNone": "Nada que cambiar. Los nombres f\u00edsicos se derivan de los l\u00f3gicos, y aqu\u00ed no hay ninguno que derive en algo distinto.",
+    "dz.nmClash": "choca con otro",
+    "dz.nmApply": "Aplicar",
+    "dz.nmSave": "Guardar reglas",
+    "dz.nmCount": "{n} cambios",
+    "dz.nmCount1": "1 cambio",
+    "dz.nmWordDel": "\u00bfQuitar {t} del glosario?",
     "dz.domains": "Dominios",
     "dz.domainNew": "Dominio nuevo",
     "dz.domainTitle": "Dominio",
@@ -380,6 +402,28 @@ const I18N = {
     "dz.areaOut": "{n} relationships leave the area",
     "dz.areaRemove": "Remove from the area",
     "dz.areaNone": "no areas",
+    "dz.naming": "Naming",
+    "dz.nmTitle": "Physical names from the logical ones",
+    "dz.nmCase": "Shape",
+    "dz.nmMax": "Maximum length",
+    "dz.nmMaxNone": "no limit",
+    "dz.nmWords": "Glossary",
+    "dz.nmWordsHint": "One word per row. With no abbreviation, the word is dropped from the name.",
+    "dz.nmFrom": "Word",
+    "dz.nmTo": "Abbreviation",
+    "dz.nmDrop": "(dropped)",
+    "dz.nmAdd": "+ Word",
+    "dz.nmScope": "Apply to",
+    "dz.nmTables": "Tables",
+    "dz.nmCols": "Columns",
+    "dz.nmPreview": "What will change",
+    "dz.nmNone": "Nothing to change. Physical names are derived from the logical ones, and none here derives into something different.",
+    "dz.nmClash": "clashes with another",
+    "dz.nmApply": "Apply",
+    "dz.nmSave": "Save rules",
+    "dz.nmCount": "{n} changes",
+    "dz.nmCount1": "1 change",
+    "dz.nmWordDel": "Remove {t} from the glossary?",
     "dz.domains": "Domains",
     "dz.domainNew": "New domain",
     "dz.domainTitle": "Domain",
@@ -2180,6 +2224,9 @@ function loadDesign() {
 function migrateDesign(d) {
   if (!Array.isArray(d.schemas)) d.schemas = [];
   if (!Array.isArray(d.domains)) d.domains = [];
+  // Las reglas de nomenclatura son del modelo: viajan con el en el XML, porque
+  // el glosario de una casa no se vuelve a escribir en cada equipo.
+  if (d.naming && typeof d.naming === "object" && !Array.isArray(d.naming.words)) d.naming.words = [];
   if (!Array.isArray(d.areas)) d.areas = [];
   for (const a of d.areas) {
     a.name = String(a.name || "");
@@ -2303,6 +2350,423 @@ function dzRequired() {
     }
   }
   return req;
+}
+
+// ── Nomenclatura ─────────────────────────────────────────────────────────────
+
+/** Las formas en que se puede escribir un nombre fisico.
+ *
+ *  La etiqueta ES el ejemplo: «snake_case» no le dice nada a casi nadie y
+ *  `pedido_venta` se entiende sin explicar. */
+const DZ_CASES = [
+  { id: "snake", ej: "pedido_venta" },
+  { id: "upper", ej: "PEDIDO_VENTA" },
+  { id: "camel", ej: "pedidoVenta" },
+  { id: "pascal", ej: "PedidoVenta" },
+  { id: "lower", ej: "pedidoventa" },
+];
+
+/** Palabras que se caen solas la primera vez.
+ *
+ *  «Pedido de venta» tiene que dar `pedido_venta` sin que nadie configure
+ *  nada, y para eso el `de` tiene que caerse. Van en el glosario como
+ *  cualquier otra palabra —con la abreviatura vacia— en vez de en una lista
+ *  aparte escondida: asi se ven, se quitan y se les anaden las de cada casa.
+ *  Se siembran en el idioma de la interfaz, que es en el que se escriben los
+ *  nombres de negocio. */
+const DZ_STOPWORDS = {
+  es: ["de", "del", "la", "el", "los", "las", "y", "en", "al"],
+  en: ["of", "the", "a", "an", "and", "in", "for"],
+};
+
+/** Las reglas de nomenclatura del modelo, creandolas la primera vez. */
+function dzNaming() {
+  if (!design.naming || typeof design.naming !== "object") design.naming = null;
+  if (!design.naming) {
+    design.naming = {
+      case: "snake",
+      max: 0,
+      words: (DZ_STOPWORDS[lang] || DZ_STOPWORDS.en).map((w) => ({ from: w, to: "" })),
+    };
+  }
+  const n = design.naming;
+  if (!DZ_CASES.some((c) => c.id === n.case)) n.case = "snake";
+  n.max = Number(n.max) || 0;
+  if (!Array.isArray(n.words)) n.words = [];
+  return n;
+}
+
+/** Quita los acentos. Ningun motor quiere una `n` con tilde en un
+ *  identificador sin comillas, y quien escribe «Año» en el modelo logico no
+ *  esta pidiendo tener que entrecomillar la tabla para siempre. */
+function sinAcentos(s) {
+  return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Parte un nombre en palabras.
+ *
+ *  Por los espacios y los signos, y tambien por los saltos de mayuscula, para
+ *  que `PedidoVenta` y «Pedido de venta» den las mismas dos palabras: el
+ *  glosario tiene que encontrarlas vengan escritas como vengan. */
+function dzWords(nombre) {
+  return sinAcentos(nombre)
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+}
+
+/** El nombre fisico que sale de uno logico.
+ *
+ *  Es lo que ERwin llama estandar de nomenclatura: el modelo logico se escribe
+ *  en el idioma del negocio —«Pedido de venta»— y la base lo quiere en el suyo
+ *  —`pedido_venta`—. Escribirlo dos veces a mano es donde aparecen las dos
+ *  terceras partes de las incoherencias de un modelo grande: `cod_cliente` en
+ *  una tabla y `codigocli` en la siguiente, sin que nadie lo decidiera.
+ *
+ *  Devuelve "" si no queda nada; quien llama se queda entonces con el nombre
+ *  que ya tenia, porque un nombre vacio no es una mejora sobre ninguno. */
+function dzPhysicalName(logico, naming) {
+  const n = naming || dzNaming();
+  const glos = new Map();
+  for (const w of n.words) {
+    const k = sinAcentos(w.from).trim().toLowerCase();
+    if (k) glos.set(k, String(w.to || "").trim());
+  }
+  let palabras = [];
+  for (const p of dzWords(logico)) {
+    const k = p.toLowerCase();
+    if (glos.has(k)) {
+      const ab = glos.get(k);
+      // Abreviatura vacia: la palabra se cae.
+      if (ab) palabras.push(...dzWords(ab));
+    } else {
+      palabras.push(p);
+    }
+  }
+  if (!palabras.length) return "";
+
+  const baja = (p) => p.toLowerCase();
+  const Pas = (p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+  let out;
+  switch (n.case) {
+    case "upper": out = palabras.map((p) => p.toUpperCase()).join("_"); break;
+    case "camel": out = palabras.map((p, i) => (i ? Pas(p) : baja(p))).join(""); break;
+    case "pascal": out = palabras.map(Pas).join(""); break;
+    case "lower": out = palabras.map(baja).join(""); break;
+    default: out = palabras.map(baja).join("_");
+  }
+  // Ningun motor acepta un identificador que empiece por cifra.
+  if (/^[0-9]/.test(out)) out = "_" + out;
+  if (n.max > 0) out = out.slice(0, n.max);
+  return out;
+}
+
+/** Que nombres cambiarian, y cuales no pueden.
+ *
+ *  Se calcula TODO antes de tocar nada y se ensena: renombrar la mitad del
+ *  modelo es de las pocas cosas de un disenador que no se deshacen mirando el
+ *  lienzo, asi que se mira antes y no despues.
+ *
+ *  Un nombre propuesto que coincide con otro se marca y NO se aplica. Ponerle
+ *  un `2` detras seria inventar un nombre que no eligio nadie; el choque casi
+ *  siempre dice que los dos nombres logicos son el mismo, y eso se arregla
+ *  arriba. */
+function dzNamingPlan(opts) {
+  const n = dzNaming();
+  const filas = [];
+
+  if (opts.tables) {
+    for (const tbl of design.tables) {
+      if (!String(tbl.logical || "").trim()) continue;
+      const prop = dzPhysicalName(tbl.logical, n);
+      if (!prop || prop === tbl.name) continue;
+      filas.push({ kind: "table", tbl, antes: tbl.name, prop, etiqueta: tblLabel(tbl) });
+    }
+    // El choque se mide contra como quedaria TODO: la propuesta de las que
+    // cambian y el nombre de ahora de las que no.
+    const cuenta = new Map();
+    const clave = (tbl, nombre) => (dz?.supports_schemas ? tblSchema(tbl) + "." : "") + nombre.toLowerCase();
+    for (const tbl of design.tables) {
+      const f = filas.find((x) => x.kind === "table" && x.tbl === tbl);
+      const k = clave(tbl, f ? f.prop : tbl.name);
+      cuenta.set(k, (cuenta.get(k) || 0) + 1);
+    }
+    for (const f of filas) if (cuenta.get(clave(f.tbl, f.prop)) > 1) f.choca = true;
+  }
+
+  if (opts.cols) {
+    for (const tbl of design.tables) {
+      const mias = [];
+      for (const col of tbl.columns) {
+        if (!String(col.logical || "").trim()) continue;
+        const prop = dzPhysicalName(col.logical, n);
+        if (!prop || prop === col.name) continue;
+        mias.push({ kind: "column", tbl, col, antes: col.name, prop, etiqueta: `${tblLabel(tbl)}.${col.name}` });
+      }
+      const cuenta = new Map();
+      for (const col of tbl.columns) {
+        const f = mias.find((x) => x.col === col);
+        const k = (f ? f.prop : col.name).toLowerCase();
+        cuenta.set(k, (cuenta.get(k) || 0) + 1);
+      }
+      for (const f of mias) if (cuenta.get(f.prop.toLowerCase()) > 1) f.choca = true;
+      filas.push(...mias);
+    }
+  }
+
+  return filas;
+}
+
+/** Aplica el plan. */
+function dzNamingApply(filas) {
+  let hechos = 0;
+  for (const f of filas) {
+    if (f.choca || f.kind !== "table") continue;
+    f.tbl.name = f.prop;
+    hechos++;
+  }
+  // Las columnas de una tabla se renombran TODAS a la vez y despues se
+  // arreglan sus relaciones con el mapa entero: de una en una, dos columnas
+  // que se intercambian el nombre se pisarian a mitad de camino.
+  const porTabla = new Map();
+  for (const f of filas) {
+    if (f.choca || f.kind !== "column") continue;
+    if (!porTabla.has(f.tbl)) porTabla.set(f.tbl, new Map());
+    porTabla.get(f.tbl).set(f.col.name, f.prop);
+    f.col.name = f.prop;
+    hechos++;
+  }
+  for (const [tbl, mapa] of porTabla) {
+    for (const r of design.relations) {
+      for (const p of r.cols) {
+        if (r.fromTable === tbl.id && mapa.has(p.from)) p.from = mapa.get(p.from);
+        if (r.toTable === tbl.id && mapa.has(p.to)) p.to = mapa.get(p.to);
+      }
+    }
+  }
+  return hechos;
+}
+
+/** El editor de la nomenclatura: las reglas, el glosario y lo que van a hacer.
+ *
+ *  Las tres cosas en el mismo sitio y la vista previa debajo, repintandose con
+ *  cada cambio, porque una regla de nomenclatura no se entiende leyendola: se
+ *  entiende viendo en que convierte los nombres que tienes delante. */
+function openNamingEditor() {
+  const base = dzNaming();
+  // Sobre una copia: cancelar no tiene que haber cambiado ninguna regla.
+  const n = { case: base.case, max: base.max, words: base.words.map((w) => ({ ...w })) };
+  const scope = { tables: true, cols: true };
+
+  const back = document.createElement("div");
+  back.className = "dz-modal-back";
+  const caja = document.createElement("div");
+  caja.className = "dz-modal dz-nm-ed";
+
+  const head = document.createElement("div");
+  head.className = "dz-modal-head";
+  head.textContent = t("dz.nmTitle");
+  caja.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "dz-modal-body";
+  caja.appendChild(body);
+
+  const previa = document.createElement("div");
+  previa.className = "dz-nm-prev";
+  const resumen = document.createElement("p");
+  resumen.className = "dz-area-count";
+
+  let aplicar = null;
+  const pintarPrevia = () => {
+    // Las reglas de la copia mandan en la vista previa sin tocar el modelo.
+    const antes = design.naming;
+    design.naming = n;
+    let filas;
+    try { filas = dzNamingPlan(scope); } finally { design.naming = antes; }
+
+    previa.replaceChildren();
+    if (!filas.length) {
+      const p = document.createElement("p");
+      p.className = "dz-nm-vacio";
+      p.textContent = t("dz.nmNone");
+      previa.appendChild(p);
+    }
+    for (const f of filas) {
+      const fila = document.createElement("div");
+      fila.className = "dz-nm-row" + (f.choca ? " choca" : "");
+      const de = document.createElement("span");
+      de.className = "dz-nm-de";
+      de.textContent = f.etiqueta;
+      const fl = document.createElement("span");
+      fl.className = "dz-nm-fl";
+      fl.textContent = "\u2192";
+      const a = document.createElement("span");
+      a.className = "dz-nm-a";
+      a.textContent = f.choca ? `${f.prop} \u00b7 ${t("dz.nmClash")}` : f.prop;
+      fila.append(de, fl, a);
+      previa.appendChild(fila);
+    }
+    const n2 = filas.filter((f) => !f.choca).length;
+    resumen.textContent = n2 === 1 ? t("dz.nmCount1") : t("dz.nmCount").replace("{n}", n2);
+    if (aplicar) aplicar.disabled = n2 === 0;
+    return filas;
+  };
+
+  // ── Las reglas ──
+  const lblCase = document.createElement("label");
+  const spCase = document.createElement("span");
+  spCase.textContent = t("dz.nmCase");
+  const selCase = document.createElement("select");
+  for (const c of DZ_CASES) selCase.appendChild(new Option(c.ej, c.id));
+  selCase.value = n.case;
+  selCase.addEventListener("change", () => { n.case = selCase.value; pintarPrevia(); });
+  lblCase.append(spCase, selCase);
+
+  const lblMax = document.createElement("label");
+  const spMax = document.createElement("span");
+  spMax.textContent = t("dz.nmMax");
+  const inMax = document.createElement("input");
+  inMax.type = "number";
+  inMax.min = "0";
+  inMax.value = String(n.max || "");
+  inMax.placeholder = t("dz.nmMaxNone");
+  inMax.addEventListener("input", () => { n.max = Number(inMax.value) || 0; pintarPrevia(); });
+  lblMax.append(spMax, inMax);
+
+  const reglas = document.createElement("div");
+  reglas.className = "dz-nm-reglas";
+  reglas.append(lblCase, lblMax);
+
+  // ── El glosario ──
+  const glos = document.createElement("div");
+  glos.className = "dz-nm-glos";
+  const pintarGlos = () => {
+    glos.replaceChildren();
+    const cab = document.createElement("div");
+    cab.className = "dz-nm-wrow cab";
+    const c1 = document.createElement("span");
+    c1.textContent = t("dz.nmFrom");
+    const c2 = document.createElement("span");
+    c2.textContent = t("dz.nmTo");
+    cab.append(c1, c2, document.createElement("span"));
+    glos.appendChild(cab);
+    for (const w of n.words) {
+      const fila = document.createElement("div");
+      fila.className = "dz-nm-wrow";
+      const a = document.createElement("input");
+      a.type = "text";
+      a.value = w.from;
+      a.addEventListener("input", () => { w.from = a.value; pintarPrevia(); });
+      const b = document.createElement("input");
+      b.type = "text";
+      b.value = w.to;
+      b.placeholder = t("dz.nmDrop");
+      b.addEventListener("input", () => { w.to = b.value; pintarPrevia(); });
+      const x = document.createElement("button");
+      x.type = "button";
+      x.className = "dz-icon-btn";
+      x.textContent = "\u2715";
+      x.addEventListener("click", () => {
+        n.words = n.words.filter((y) => y !== w);
+        pintarGlos();
+        pintarPrevia();
+      });
+      fila.append(a, b, x);
+      glos.appendChild(fila);
+    }
+  };
+  pintarGlos();
+
+  const masPal = document.createElement("button");
+  masPal.type = "button";
+  masPal.className = "btn ghost";
+  masPal.textContent = t("dz.nmAdd");
+  masPal.addEventListener("click", () => {
+    n.words.push({ from: "", to: "" });
+    pintarGlos();
+    glos.querySelector(".dz-nm-wrow:last-child input")?.focus();
+  });
+
+  const pista = document.createElement("p");
+  pista.className = "dz-area-count";
+  pista.textContent = t("dz.nmWordsHint");
+
+  // ── A que se aplica ──
+  const ambito = document.createElement("div");
+  ambito.className = "dz-nm-ambito";
+  const spAmb = document.createElement("span");
+  spAmb.textContent = t("dz.nmScope");
+  ambito.appendChild(spAmb);
+  for (const [k, texto] of [["tables", t("dz.nmTables")], ["cols", t("dz.nmCols")]]) {
+    const l = document.createElement("label");
+    l.className = "dz-flag";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = scope[k];
+    cb.addEventListener("change", () => { scope[k] = cb.checked; pintarPrevia(); });
+    l.append(cb, document.createTextNode(texto));
+    ambito.appendChild(l);
+  }
+
+  // Los dos titulillos llevan su accion (o su cuenta) a la derecha, en la misma
+  // linea: apilados, el boton se estiraba de lado a lado y parecia el titulo.
+  const ttGlos = document.createElement("label");
+  ttGlos.className = "dz-nm-tt";
+  const spGlos = document.createElement("span");
+  spGlos.textContent = t("dz.nmWords");
+  ttGlos.append(spGlos, masPal);
+
+  const ttPrev = document.createElement("label");
+  ttPrev.className = "dz-nm-tt";
+  const spPrev = document.createElement("span");
+  spPrev.textContent = t("dz.nmPreview");
+  ttPrev.append(spPrev, resumen);
+
+  body.append(reglas, ttGlos, glos, pista, ambito, ttPrev, previa);
+
+  // ── El pie ──
+  const foot = document.createElement("div");
+  foot.className = "dz-modal-foot";
+  const cancelar = document.createElement("button");
+  cancelar.type = "button";
+  cancelar.className = "btn ghost";
+  cancelar.textContent = t("btn.cancel");
+  const guardar = document.createElement("button");
+  guardar.type = "button";
+  guardar.className = "btn ghost";
+  guardar.textContent = t("dz.nmSave");
+  aplicar = document.createElement("button");
+  aplicar.type = "button";
+  aplicar.className = "btn primary";
+  aplicar.textContent = t("dz.nmApply");
+  foot.append(cancelar, guardar, aplicar);
+  caja.appendChild(foot);
+
+  back.appendChild(caja);
+  document.body.appendChild(back);
+  pintarPrevia();
+
+  const cerrar = () => {
+    document.removeEventListener("keydown", onKey);
+    back.remove();
+  };
+  const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); cerrar(); } };
+  document.addEventListener("keydown", onKey);
+  cancelar.addEventListener("click", cerrar);
+  back.addEventListener("mousedown", (e) => { if (e.target === back) cerrar(); });
+
+  const guardarReglas = () => {
+    design.naming = { case: n.case, max: n.max, words: n.words.filter((w) => String(w.from).trim()) };
+  };
+  guardar.addEventListener("click", () => { guardarReglas(); saveDesign(); cerrar(); renderDesigner(); });
+  aplicar.addEventListener("click", () => {
+    guardarReglas();
+    dzNamingApply(dzNamingPlan(scope));
+    saveDesign();
+    cerrar();
+    renderDesigner();
+  });
 }
 
 // ── Areas tematicas ──────────────────────────────────────────────────────────
@@ -4882,6 +5346,18 @@ function renderTree() {
     }
   });
 
+  treeGroup(ul, "naming", t("dz.naming"), (design.naming?.words || []).length, (sub) => {
+    for (const w of design.naming?.words || []) {
+      const texto = w.to ? `${w.from} \u2192 ${w.to}` : `${w.from} \u00b7 ${t("dz.nmDrop")}`;
+      treeItem(sub, "nmword", w.from, texto, () => openNamingEditor(), () => {
+        if (!confirm(t("dz.nmWordDel").replace("{t}", w.from))) return;
+        design.naming.words = design.naming.words.filter((x) => x !== w);
+        saveDesign();
+        renderDesigner();
+      });
+    }
+  }, () => openNamingEditor());
+
   treeGroup(ul, "areas", t("dz.areas"), (design.areas || []).length, (sub) => {
     for (const a of design.areas || []) {
       // Un clic en un area es MIRARLA: un area no es un objeto del modelo sino
@@ -5344,6 +5820,17 @@ function designToXml() {
     out += "  </schemas>\n";
   }
 
+  // Solo si se ha tocado: un modelo al que nadie le puso reglas no gana nada
+  // llevando el glosario por defecto escrito dentro.
+  if (design.naming) {
+    const nm = design.naming;
+    out += `  <naming${at("case", nm.case)}${at("max", nm.max || "")}>\n`;
+    for (const w of nm.words || []) {
+      if (String(w.from || "").trim()) out += `    <word${at("from", w.from)}${at("to", w.to)} />\n`;
+    }
+    out += "  </naming>\n";
+  }
+
   if ((design.domains || []).length) {
     out += "  <domains>\n";
     for (const d of design.domains) {
@@ -5427,6 +5914,7 @@ function xmlToDesign(texto) {
     domains: [],
     areas: [],
     area: "",
+    naming: null,
     seq: 1,
     dialect: root.getAttribute("dialect") || DZ_DIALECT_DEFAULT,
     version: root.getAttribute("engine-version") || "",
@@ -5435,6 +5923,17 @@ function xmlToDesign(texto) {
   for (const e of root.querySelectorAll("schemas > schema")) {
     const n = e.getAttribute("name");
     if (n && !d.schemas.includes(n)) d.schemas.push(n);
+  }
+
+  const ne = root.querySelector("naming");
+  if (ne) {
+    d.naming = {
+      case: ne.getAttribute("case") || "snake",
+      max: Number(ne.getAttribute("max")) || 0,
+      words: [...ne.querySelectorAll("word")]
+        .map((we) => ({ from: we.getAttribute("from") || "", to: we.getAttribute("to") || "" }))
+        .filter((w) => w.from),
+    };
   }
 
   const porNombre = new Map();

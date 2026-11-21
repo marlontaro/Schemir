@@ -121,6 +121,30 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **El nombre físico se deriva del lógico**, el estándar de nomenclatura de ERwin. El
+  modelo lógico se escribe en el idioma del negocio —«Pedido de venta»— y la base lo
+  quiere en el suyo —`pedido_venta`—; escribirlo dos veces a mano es de donde salen las
+  incoherencias de un modelo grande: `cod_cliente` en una tabla y `codigocli` en la
+  siguiente, sin que nadie lo decidiera. Se elige la **forma** (`pedido_venta`,
+  `PEDIDO_VENTA`, `pedidoVenta`, `PedidoVenta`, `pedidoventa` — la etiqueta ES el
+  ejemplo, porque «snake_case» no le dice nada a casi nadie) y un **largo máximo**. Los
+  **acentos se caen** (`Año de alta` → `ano_alta`): nadie que escribe «Año» en el modelo
+  lógico está pidiendo entrecomillar la tabla para siempre. Un nombre que empezara por
+  cifra lleva `_` delante, porque ningún motor lo acepta. El **glosario** traduce palabra
+  a palabra (`identificador` → `id`) y, **sin abreviatura, la palabra se cae**: así las
+  vacías —`de`, `del`, `la`— son entradas normales del glosario y no una lista escondida,
+  se ven, se quitan y se les añaden las de cada casa. Se siembran solas en el idioma de la
+  interfaz, para que «Pedido de venta» dé `pedido_venta` sin configurar nada. **Todo se
+  calcula y se enseña antes de tocar nada**, con el nombre de ahora y el propuesto
+  enfrentados: renombrar media docena de tablas es de las pocas cosas que no se deshacen
+  mirando el lienzo. Lo que **choca** con otro nombre se marca y NO se aplica —ponerle un
+  `2` detrás sería inventar un nombre que no eligió nadie, y el choque casi siempre dice
+  que los dos nombres lógicos son el mismo—. Al aplicar, **las relaciones siguen a las
+  columnas**: renombrar `pedido.id` a `numero` reescribe el `REFERENCES`. Las columnas de
+  una tabla se renombran todas a la vez y las relaciones se arreglan después con el mapa
+  entero, porque de una en una dos columnas que se intercambian el nombre se pisarían a
+  mitad de camino. Las reglas viajan en el XML: el glosario de una casa no se vuelve a
+  escribir en cada equipo.
 - **Áreas temáticas: un recorte del modelo**, las *subject areas* de ERwin. Con cuarenta
   tablas en el lienzo, la conversación de hoy es sobre seis; un área guarda una lista de
   tablas y **nada más**, así que no es una copia ni un modelo aparte: borrar un área no

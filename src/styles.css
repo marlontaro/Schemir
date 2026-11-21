@@ -646,6 +646,47 @@ body.dz-full #design-output {
   transition: transform 0.12s ease; opacity: 0.6;
 }
 .dz-tr-group.cerrado .dz-tr-head::before { transform: rotate(0deg); }
+/* El editor de la nomenclatura. Ancho porque lo que se lee aqui son dos
+   columnas de nombres enfrentadas, y estrecharlas obliga a cortarlos justo
+   donde se diferencian. */
+.dz-nm-ed { width: min(680px, 94vw); }
+.dz-nm-reglas { display: flex; gap: 14px; }
+/* Con la clase del cuerpo delante: `.dz-modal-body label` apila en columna y
+   gana por especificidad, asi que sin ella el titulillo salia encima y el
+   boton estirado debajo. */
+.dz-modal-body label.dz-nm-tt { flex-direction: row; align-items: center; gap: 10px; }
+.dz-nm-tt > span:first-child { flex: 0 0 auto; }
+.dz-nm-tt > .btn, .dz-nm-tt > .dz-area-count { margin-left: auto; margin-top: 0; width: auto; }
+.dz-nm-reglas > label { flex: 1 1 0; min-width: 0; }
+.dz-nm-glos {
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+  max-height: 24vh; overflow: auto;
+}
+.dz-nm-wrow {
+  display: grid; grid-template-columns: 1fr 1fr 26px; gap: 6px; align-items: center;
+  padding: 4px 8px; border-bottom: 1px solid var(--border);
+}
+.dz-nm-wrow:last-child { border-bottom: none; }
+.dz-nm-wrow.cab { font-size: 11px; color: var(--muted-2); padding: 4px 8px 3px; }
+.dz-nm-wrow input { width: 100%; min-width: 0; }
+.dz-nm-ambito { display: flex; gap: 12px; align-items: center; font-size: 12.5px; }
+.dz-nm-prev {
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+  max-height: 30vh; overflow: auto; margin-top: 6px;
+}
+.dz-nm-row {
+  display: grid; grid-template-columns: 1fr 18px 1fr; gap: 6px; align-items: center;
+  padding: 4px 10px; font-size: 12.5px; border-bottom: 1px solid var(--border);
+}
+.dz-nm-row:last-child { border-bottom: none; }
+.dz-nm-de, .dz-nm-a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dz-nm-de { color: var(--muted); }
+.dz-nm-fl { color: var(--muted-2); text-align: center; }
+.dz-nm-a { font-weight: 600; }
+/* El choque se marca en el nombre propuesto, que es el que no se va a poner. */
+.dz-nm-row.choca .dz-nm-a { color: var(--diff); font-weight: 400; }
+.dz-nm-vacio { margin: 0; padding: 12px 10px; font-size: 12.5px; color: var(--muted-2); }
+
 /* El editor del area: la lista entera del modelo con una casilla cada una, en
    una caja que se desplaza. Alta y no ancha: lo que se lee de una tabla aqui es
    su nombre, y lo que se compara es cuantas llevas marcadas. */
