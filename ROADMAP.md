@@ -121,6 +121,13 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **Pensado para un modelo de verdad: una columna, una línea.** La entidad escribe cada
+  columna como la escribe ERwin —`Nombre: varchar(500) NOT NULL`— y no el nombre a un lado
+  peleando con el tipo al otro por el ancho de la caja. Quince columnas —que es lo que
+  tiene una tabla de verdad— caben en una caja pequeña y no se recorta ninguna. El orden
+  es el del DDL, para que lo que se lee en el diagrama sea lo que va a salir en el script.
+- **Las líneas van en ángulo recto**, no en diagonal. Una diagonal entre dos cajas cruza
+  por encima de todo lo que haya en medio, y con quince tablas en medio hay siempre algo.
 - **La tarjeta se estira también a lo alto.** Con un alto puesto, la lista de columnas se
   desplaza dentro y la clave primaria se queda siempre a la vista: una tabla de treinta
   columnas cabe en la caja que uno le dé en vez de taparlo todo. Doble clic en la esquina

@@ -133,6 +133,11 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   `FOREIGN KEY (a, b)`. A column that leaves the key is never deleted from the child: it
   keeps its data. Relationships you pointed at some other column on purpose are left
   alone, and so is a table that references itself, where no automatic answer would do.
+- 📐 **Built for a real model: one column, one line.** An entity writes each column
+  the way ERwin does — `Nombre: varchar(500) NOT NULL` — instead of a name on the left
+  fighting a type on the right for the width. Fifteen columns fit in a small box and none
+  of them is cut off. Relationship lines are **right-angled**, not diagonal: across fifteen
+  tables a diagonal crosses everything in its way.
 - ↕️ **Cards resize both ways.** Give a card a height and its column list scrolls
   inside it, with the primary key always on top: a thirty-column table fits in the box you
   give it instead of covering the diagram. Double-click the corner for its natural size.

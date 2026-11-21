@@ -457,13 +457,15 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .designer-bar .recent-select { margin-left: 0; max-width: 150px; }
 .designer-bar .spacer { flex: 1; }
 .designer-canvas {
-  position: relative; min-height: 420px; background: var(--diagram-bg);
+  /* El alto de una ventana menos lo que ocupan la cabecera y la barra: un
+     modelo de verdad son quince tablas y en 420 px no se ve ninguna. */
+  position: relative; min-height: min(72vh, 760px); background: var(--diagram-bg);
   border: 1px solid var(--border); border-radius: var(--radius); overflow: auto; padding: 4px;
 }
 .dz-edges { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
-.dz-edges line { stroke: var(--accent); stroke-width: 1.6; opacity: 0.8; }
+.dz-edges line, .dz-edges polyline { stroke: var(--accent); stroke-width: 1.6; opacity: 0.8; fill: none; }
 .dz-table {
-  position: absolute; z-index: 1; width: 300px; min-width: 180px; background: var(--surface);
+  position: absolute; z-index: 1; width: 330px; min-width: 180px; background: var(--surface);
   border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow-sm); overflow: hidden;
   /* En columna para que, cuando el usuario le fija un alto, la cabecera se
      quede quieta y lo que se desplace sea la lista de columnas. */
@@ -537,6 +539,7 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .dz-grip:hover { opacity: 1; background: var(--accent); }
 .designer-canvas.dz-linking, .designer-canvas.dz-linking .dz-table, .designer-canvas.dz-linking .dz-col { cursor: crosshair; }
 .dz-edges line.dz-rubber { stroke-dasharray: 5 4; stroke-width: 2; opacity: 1; }
+.dz-edges polyline.dz-no-id { stroke-dasharray: 6 4; }
 .dz-edges marker path { fill: var(--accent); }
 
 .dz-schema-sel {
@@ -593,20 +596,13 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .dz-schema-ro { font-size: 10.5px; color: var(--muted-2); flex: 0 0 auto; }
-.dz-ro { display: flex; align-items: center; gap: 6px; padding: 3px 6px; font-size: 12px; }
-/* `flex: 1 1 auto` y no `flex: 1`: con la base en 0 el nombre se quedaba sin
-   ancho en cuanto el tipo era largo ("uniqueidentifier · NEWSEQUENTIALID") y la
-   fila mostraba el tipo entero y del nombre una letra. El nombre es lo que
-   identifica la fila, así que se mide por su contenido y el tipo cede. */
-.dz-ro-name { flex: 1 1 auto; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dz-ro-key { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; color: var(--accent); }
-.dz-ro-type {
-  /* Nunca más de la mitad larga de la fila: pasado eso se recorta el tipo, que
-     se lee entero en el editor, y no el nombre, que solo está aquí. */
-  flex: 0 1 auto; min-width: 0; max-width: 55%; font-size: 11px; color: var(--muted);
+/* Apretada a propósito: una tabla de verdad trae quince columnas y el diagrama
+   se mira entero, no fila por fila. Lo que se lee de cerca es el editor. */
+.dz-ro { display: flex; align-items: center; gap: 5px; padding: 1px 6px; font-size: 10.5px; }
+.dz-ro-txt {
+  flex: 1 1 auto; min-width: 0; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.dz-ro-null { flex: 0 0 auto; font-size: 9px; color: var(--muted-2); }
 .dz-ro-empty { padding: 12px; text-align: center; font-size: 12px; color: var(--muted-2); }
 /* La línea que separa la clave primaria del resto, como en ERwin. */
 .dz-pk-box { border-bottom: 1px solid var(--border); }

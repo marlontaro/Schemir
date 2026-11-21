@@ -2731,6 +2731,25 @@ function tableIsDependent(tbl) {
   return tbl.columns.some((c) => c.pk && colIsFk(tbl, c));
 }
 
+/** La columna escrita como la escribe ERwin: `Nombre: varchar(500) NOT NULL`.
+ *
+ *  Una sola línea y no el nombre a un lado y el tipo al otro. Con quince
+ *  columnas —que es lo que tiene una tabla de verdad— dos columnas de texto se
+ *  pelean por el ancho de la caja y acaban las dos recortadas; en una línea, la
+ *  caja mide lo que mida la más larga y se lee entera.
+ *
+ *  El orden es el del DDL (`int IDENTITY(1,1) NOT NULL`) para que lo que se lee
+ *  en el diagrama sea lo que va a salir en el script. La nulabilidad se escribe
+ *  siempre, también cuando admite nulos: en un diagrama que se mira de lejos,
+ *  que falte una palabra no se distingue de que nadie la haya decidido. */
+function dzColLine(tbl, col) {
+  let s = col.name + ": " + fullType(col);
+  if (col.auto && dz) s += " " + dzAutoLabel(col.auto);
+  s += col.pk || col.nn ? " NOT NULL" : " NULL";
+  if (colIsFk(tbl, col)) s += " (FK)";
+  return s;
+}
+
 /** Una fila de la TARJETA: solo se lee. */
 function buildCardRow(tbl, col) {
   const li = document.createElement("li");
@@ -2743,26 +2762,14 @@ function buildCardRow(tbl, col) {
   grip.title = t("dz.dragHint");
   grip.addEventListener("mousedown", (e) => startLink(e, tbl, col));
 
-  const nombre = document.createElement("span");
-  nombre.className = "dz-ro-name";
-  nombre.textContent = col.name;
+  const txt = document.createElement("span");
+  txt.className = "dz-ro-txt";
+  txt.textContent = dzColLine(tbl, col);
+  // El título trae la línea entera por si la caja la recorta: así no hay que
+  // abrir el editor para leer un tipo largo.
+  txt.title = txt.textContent;
 
-  const marca = document.createElement("span");
-  marca.className = "dz-ro-key";
-  marca.textContent = colIsFk(tbl, col) ? "(FK)" : "";
-
-  const tipo = document.createElement("span");
-  tipo.className = "dz-ro-type";
-  tipo.textContent = fullType(col);
-  if (col.auto && dz) tipo.textContent += " · " + dzAutoLabel(col.auto);
-  if (!col.pk && !col.nn) {
-    const nulo = document.createElement("span");
-    nulo.className = "dz-ro-null";
-    nulo.textContent = "NULL";
-    li.append(grip, nombre, marca, tipo, nulo);
-    return li;
-  }
-  li.append(grip, nombre, marca, tipo);
+  li.append(grip, txt);
   return li;
 }
 
@@ -3312,18 +3319,32 @@ async function askNewSchema() {
 
 // ── Las líneas entre tablas ──────────────────────────────────────────────────
 
-/** Dónde corta el borde de la caja la recta que va hacia (tx, ty). Así las
- *  líneas nacen en el borde de la tabla y no por debajo de ella. */
-function edgePoint(box, tx, ty) {
-  const cx = box.x + box.w / 2;
-  const cy = box.y + box.h / 2;
-  const dx = tx - cx;
-  const dy = ty - cy;
-  if (!dx && !dy) return { x: cx, y: cy };
-  const sx = dx ? box.w / 2 / Math.abs(dx) : Infinity;
-  const sy = dy ? box.h / 2 / Math.abs(dy) : Infinity;
-  const s = Math.min(sx, sy, 1);
-  return { x: cx + dx * s, y: cy + dy * s };
+
+/** El camino entre dos tarjetas, en ángulo recto como el de ERwin.
+ *
+ *  Una diagonal entre dos cajas cruza por encima de todo lo que haya en medio,
+ *  y en un modelo de quince tablas en medio hay siempre algo. Con tramos rectos
+ *  la línea va por los pasillos y se puede seguir con la vista, que es para lo
+ *  único que sirve una línea en un diagrama.
+ *
+ *  Sale por el lado que mira al otro —el eje en el que las cajas están más
+ *  separadas— y gira a medio camino. Así los dos extremos llegan de frente a su
+ *  caja y la pata de gallo y la barra apuntan a donde tienen que apuntar. */
+function orthoPath(ba, bb) {
+  const ca = { x: ba.x + ba.w / 2, y: ba.y + ba.h / 2 };
+  const cb = { x: bb.x + bb.w / 2, y: bb.y + bb.h / 2 };
+  const dx = cb.x - ca.x;
+  const dy = cb.y - ca.y;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    const p1 = { x: dx >= 0 ? ba.x + ba.w : ba.x, y: ca.y };
+    const p2 = { x: dx >= 0 ? bb.x : bb.x + bb.w, y: cb.y };
+    const xm = (p1.x + p2.x) / 2;
+    return [p1, { x: xm, y: p1.y }, { x: xm, y: p2.y }, p2];
+  }
+  const p1 = { x: ca.x, y: dy >= 0 ? ba.y + ba.h : ba.y };
+  const p2 = { x: cb.x, y: dy >= 0 ? bb.y : bb.y + bb.h };
+  const ym = (p1.y + p2.y) / 2;
+  return [p1, { x: p1.x, y: ym }, { x: p2.x, y: ym }, p2];
 }
 
 function cardBox(card) {
@@ -3371,15 +3392,10 @@ function drawDesignEdges() {
     const a = canvas.querySelector(`.dz-table[data-id="${r.fromTable}"]`);
     const b = canvas.querySelector(`.dz-table[data-id="${r.toTable}"]`);
     if (!a || !b) continue;
-    const ba = cardBox(a);
-    const bb = cardBox(b);
-    const p1 = edgePoint(ba, bb.x + bb.w / 2, bb.y + bb.h / 2);
-    const p2 = edgePoint(bb, ba.x + ba.w / 2, ba.y + ba.h / 2);
-    const line = document.createElementNS(SVGNS, "line");
-    line.setAttribute("x1", p1.x);
-    line.setAttribute("y1", p1.y);
-    line.setAttribute("x2", p2.x);
-    line.setAttribute("y2", p2.y);
+    const puntos = orthoPath(cardBox(a), cardBox(b));
+    const line = document.createElementNS(SVGNS, "polyline");
+    line.setAttribute("points", puntos.map((p) => `${p.x},${p.y}`).join(" "));
+    line.setAttribute("fill", "none");
     // La pata de gallo va en la HIJA (de donde sale la línea) y la barra en el
     // padre. Continua si la relación identifica a la hija, discontinua si no.
     line.setAttribute("marker-start", "url(#dz-crow)");
