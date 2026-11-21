@@ -121,6 +121,18 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **El modo diseño es un sitio de trabajo, no una página.** Se queda con la ventana
+  entera: árbol de objetos a la izquierda —tablas, relaciones y esquemas, cada rama con su
+  cuenta—, el lienzo llenando el resto y una barra abajo que dice qué hay seleccionado.
+  Es el Model Explorer de ERwin sin las barras grises de 2005. El árbol y el lienzo son
+  dos vistas de lo mismo: señalar en una se ve en la otra, un clic selecciona y dos abren.
+  El modo comparar sigue siendo la página centrada de siempre, que es lo que le va a un
+  informe que se lee de arriba abajo.
+- **El editor de la tabla es una rejilla y usa el ancho de la pantalla.** Cada tipo trae
+  controles distintos —`varchar` tiene longitud y MAX, `uniqueidentifier` no, `decimal`
+  tiene precisión y escala—, así que con filas flexibles cada una salía de un ancho y
+  nada quedaba en columna. Con pistas fijas y una cabecera, lo que a una fila no le toca
+  deja su hueco y el resto no se mueve: se lee como la tabla que es.
 - **Pensado para un modelo de verdad: una columna, una línea.** La entidad escribe cada
   columna como la escribe ERwin —`Nombre: varchar(500) NOT NULL`— y no el nombre a un lado
   peleando con el tipo al otro por el ancho de la caja. Quince columnas —que es lo que

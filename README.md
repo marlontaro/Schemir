@@ -133,6 +133,12 @@ Grab the installer for your OS from the [**latest release**](https://github.com/
   `FOREIGN KEY (a, b)`. A column that leaves the key is never deleted from the child: it
   keeps its data. Relationships you pointed at some other column on purpose are left
   alone, and so is a table that references itself, where no automatic answer would do.
+- 🗂️ **Design mode is a workspace, not a page.** It takes the whole window: an object
+  tree on the left (tables, relations, schemas, each with its count), the canvas filling
+  everything else, and a status bar that says what is selected — ERwin's Model Explorer,
+  minus the 2005 chrome. Click in the tree to select, click a card and the tree follows;
+  double-click either to open it. Compare mode stays the centred, scrolling page it was,
+  because a report is read top to bottom.
 - 📐 **Built for a real model: one column, one line.** An entity writes each column
   the way ERwin does — `Nombre: varchar(500) NOT NULL` — instead of a name on the left
   fighting a type on the right for the width. Fifteen columns fit in a small box and none

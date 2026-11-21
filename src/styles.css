@@ -500,16 +500,96 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .dz-col label.dz-flag input { width: 13px; height: 13px; accent-color: var(--accent); cursor: pointer; }
 .dz-add-col { width: calc(100% - 8px); margin: 2px 4px 6px; border: 1px dashed var(--border); background: transparent; color: var(--muted); border-radius: 7px; padding: 5px; font-size: 12px; cursor: pointer; }
 .dz-add-col:hover { border-color: var(--accent); color: var(--text); }
-.dz-relations { margin-top: 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
-.dz-rel-head { font-weight: 600; font-size: 14px; margin-bottom: 10px; }
-.dz-rel-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dz-rel-form select { max-width: 180px; }
-.dz-arrow { color: var(--muted); }
-.dz-rel-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.dz-rel-list li { display: flex; align-items: center; gap: 8px; font-size: 13px; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 8px; padding: 7px 12px; }
-.dz-rel-list .mono { font-family: var(--mono, ui-monospace, Menlo, monospace); color: var(--text); }
-.dz-rel-list .spacer { flex: 1; }
 #design-output { margin-top: 18px; }
+
+/* ── El armazón del diseñador ────────────────────────────────────────────────
+   Modo diseño: la ventana entera, con el árbol a un lado y el lienzo llenando
+   lo demás, como ERwin. Modo comparar: la página centrada de siempre, que es lo
+   que le va a un informe que se lee de arriba abajo. Por eso todo esto cuelga
+   de `body.dz-full` y no vale para la otra mitad del programa. */
+body.dz-full { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+/* `.app` está en medio y es un bloque: sin volverlo flexible también, el
+   `flex: 1` de `.content` no tiene a quién pedírselo y la cadena se queda a la
+   altura de su contenido en vez de llegar al borde de la ventana. */
+body.dz-full .app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+body.dz-full .content {
+  max-width: none; margin: 0; padding: 0;
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+}
+body.dz-full #designer { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+body.dz-full .designer-bar {
+  flex: 0 0 auto; margin: 0; padding: 10px 16px;
+  border-bottom: 1px solid var(--border); background: var(--surface);
+}
+/* `min-height: 0` en los dos: sin eso un hijo flexible no se encoge por debajo
+   de su contenido y el lienzo empujaría la barra de estado fuera de la pantalla. */
+.dz-workspace { position: relative; display: flex; flex: 1 1 auto; min-height: 0; }
+body.dz-full .designer-canvas {
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  border: 0; border-radius: 0; padding: 0;
+}
+body.dz-full #design-output {
+  flex: 0 0 auto; margin: 0; max-height: 38vh; overflow: auto;
+  border-top: 1px solid var(--border); background: var(--surface);
+}
+.dz-empty-over {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  margin: 0; pointer-events: none;
+}
+
+/* El árbol de objetos: el Model Explorer. */
+.dz-tree {
+  flex: 0 0 236px; display: flex; flex-direction: column; min-height: 0;
+  background: var(--surface); border-right: 1px solid var(--border);
+}
+.dz-tree-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+  padding: 8px 8px 8px 12px; font-size: 12px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+}
+.dz-tree-head .spacer { flex: 1; }
+.dz-tree-list { flex: 1 1 auto; min-height: 0; overflow: auto; list-style: none; margin: 0; padding: 6px 0; }
+.dz-tr-sub { list-style: none; margin: 0; padding: 0; }
+.dz-tr-group.cerrado .dz-tr-sub { display: none; }
+.dz-tr-head {
+  display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+  padding: 4px 10px; font-size: 12px; font-weight: 600; color: var(--text);
+}
+.dz-tr-head:hover { background: var(--surface-2); }
+/* El triángulo sale del CSS y no del HTML: así girar al abrir es una línea y no
+   hay un carácter que traducir ni que alinear. */
+.dz-tr-head::before {
+  content: ""; flex: 0 0 auto; width: 0; height: 0;
+  border-left: 4px solid currentColor; border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent; transform: rotate(90deg);
+  transition: transform 0.12s ease; opacity: 0.6;
+}
+.dz-tr-group.cerrado .dz-tr-head::before { transform: rotate(0deg); }
+.dz-tr-n { margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--muted-2); }
+.dz-tr-item {
+  display: flex; align-items: center; gap: 4px; cursor: default;
+  padding: 3px 8px 3px 26px; font-size: 12px; color: var(--muted);
+}
+.dz-tr-item:hover { background: var(--surface-2); color: var(--text); }
+.dz-tr-item.sel { background: var(--surface-3); color: var(--text); }
+.dz-tr-txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* La papelera solo cuando el ratón está encima: una columna de aspas en una
+   lista de quince tablas pesa más que los nombres. */
+.dz-tr-del { flex: 0 0 auto; width: 18px; height: 18px; font-size: 11px; opacity: 0; }
+.dz-tr-item:hover .dz-tr-del, .dz-tr-item.sel .dz-tr-del { opacity: 1; }
+
+/* Lo seleccionado, señalado en las dos vistas. */
+.dz-table.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.dz-edges polyline.sel { stroke-width: 2.6; opacity: 1; }
+
+.dz-status {
+  flex: 0 0 auto; display: flex; align-items: center;
+  padding: 0 14px; height: 26px;
+  font-size: 11px; color: var(--muted); background: var(--surface);
+  border-top: 1px solid var(--border);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ── Diseñador: el tipo se elige, el esquema se ve, la relación se arrastra ── */
 .dz-type { display: flex; align-items: center; gap: 3px; flex: 1.7; min-width: 0; }
@@ -614,10 +694,59 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 1
 .dz-edges line.dz-no-id { stroke-dasharray: 7 5; }
 
 /* El editor de la tabla, que es donde ahora se escribe. */
-.dz-modal.dz-editor { min-width: 680px; max-width: 920px; }
+/* El editor se queda con el ancho de la pantalla: con once controles por fila
+   —nombre, tipo, longitud, escala, MAX, generador, PK, NN y tres botones— en
+   920 px cada uno sale espachurrado. */
+.dz-modal.dz-editor { min-width: 0; width: min(1240px, 94vw); max-width: none; }
 .dz-ed-head { display: flex; gap: 12px; }
 .dz-ed-head label { flex: 1; }
-.dz-ed-cols { gap: 5px; margin-top: 4px; max-height: 46vh; overflow-y: auto; }
+.dz-ed-cols { gap: 5px; margin-top: 0; max-height: 62vh; overflow-y: auto; }
+
+/* ── El editor es una REJILLA, no filas sueltas ──────────────────────────────
+   Cada tipo trae controles distintos —`varchar` tiene longitud y MAX,
+   `uniqueidentifier` no, `decimal` tiene precisión y escala— así que con filas
+   flexibles cada una salía de un ancho y nada quedaba en columna. Con pistas
+   fijas, lo que a una fila no le toca deja su hueco vacío y el resto no se
+   mueve: se lee como la tabla que es. */
+.dz-ed-th, .dz-ed-cols .dz-col {
+  display: grid;
+  grid-template-columns:
+    minmax(110px, 1.5fr)   /* nombre */
+    minmax(250px, 2.2fr)   /* tipo, con sus propias pistas dentro */
+    minmax(96px, 1fr)      /* valor automático */
+    40px 40px              /* PK  NN */
+    26px 26px 26px;        /* subir  bajar  quitar */
+  gap: 6px; align-items: center;
+}
+.dz-ed-th {
+  padding: 8px 6px 4px; font-size: 10px; font-weight: 700; color: var(--muted-2);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
+}
+.dz-ed-th > :nth-child(4), .dz-ed-th > :nth-child(5) { text-align: center; }
+/* En una rejilla las propiedades flex no pintan nada: el ancho lo manda la
+   pista, así que los controles la llenan y se les quita el mínimo que tenían. */
+.dz-ed-cols .dz-col input[type="text"],
+.dz-ed-cols .dz-col select { width: 100%; min-width: 0; }
+.dz-ed-cols .dz-col > label.dz-flag { justify-content: center; }
+
+/* Dentro de la celda del tipo, otras tantas pistas fijas. Cada control dice en
+   qué columna va, de modo que el que esté oculto deja su hueco y no empuja a
+   los demás. El orden de los hijos lo fija `buildTypeCell`: desplegable, tipo
+   libre, primer argumento, la coma, segundo argumento y MAX. */
+.dz-ed-cols .dz-col .dz-type {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px 7px 48px 52px;
+  gap: 4px; align-items: center; flex: none; min-width: 0;
+}
+.dz-ed-cols .dz-type > :nth-child(1),
+.dz-ed-cols .dz-type > :nth-child(2) { grid-area: 1 / 1; }
+.dz-ed-cols .dz-type > :nth-child(3) { grid-column: 2; }
+.dz-ed-cols .dz-type > :nth-child(4) { grid-column: 3; }
+.dz-ed-cols .dz-type > :nth-child(5) { grid-column: 4; }
+.dz-ed-cols .dz-type > :nth-child(6) { grid-column: 5; }
+.dz-ed-cols .dz-auto { min-width: 0; }
+.dz-ed-cols .dz-auto > select { width: 100%; max-width: none; }
 .dz-ed-cols .dz-col { background: var(--surface-2); border-radius: 7px; padding: 4px 6px; }
 .dz-ed-cols .dz-icon-btn:disabled { opacity: 0.3; cursor: default; }
 .dz-editor .dz-add-col { width: 100%; margin: 10px 0 0; }

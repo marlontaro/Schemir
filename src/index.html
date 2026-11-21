@@ -339,17 +339,18 @@
             <button type="button" id="clear-design" class="btn ghost" data-i18n="dz.clear">Limpiar</button>
           </div>
 
-          <div class="designer-canvas" id="design-canvas"></div>
-          <p id="design-empty" class="empty" data-i18n="dz.empty">Añade una tabla para empezar tu modelo.</p>
+          <div class="dz-workspace">
+            <aside class="dz-tree">
+              <div class="dz-tree-head">
+                <span data-i18n="dz.treeHead">Modelo</span>
+                <span class="spacer"></span>
+                <button type="button" id="rel-add" class="dz-icon-btn" data-i18n-title="dz.addRel" title="Relacion nueva">+</button>
+              </div>
+              <ul id="dz-tree-list" class="dz-tree-list"></ul>
+            </aside>
 
-          <div class="dz-relations">
-            <div class="dz-rel-head" data-i18n="dz.relations">Relaciones (claves foráneas)</div>
-            <div class="dz-rel-form">
-              <button type="button" id="rel-add" class="btn ghost" data-i18n="dz.addRel">Añadir relación</button>
-              <span class="hint" data-i18n="dz.relHint">Arrastra desde el punto de una columna hasta otra tabla.</span>
-            </div>
-            <ul id="rel-list" class="dz-rel-list"></ul>
-            <p id="rel-empty" class="empty" data-i18n="dz.noRels">Todavía no hay ninguna relación.</p>
+            <div class="designer-canvas" id="design-canvas"></div>
+            <p id="design-empty" class="empty dz-empty-over" data-i18n="dz.empty">Añade una tabla para empezar tu modelo.</p>
           </div>
 
           <div id="design-output" hidden>
@@ -362,6 +363,8 @@
             </div>
             <pre id="design-box" class="sql-box"></pre>
           </div>
+
+          <div class="dz-status" id="dz-status"></div>
         </section>
       </main>
     </div>

@@ -25,10 +25,22 @@ const I18N = {
     "dz.clearConfirm": "¿Borrar todo el modelo del diseñador?",
     "dz.empty": "Añade una tabla para empezar tu modelo.",
     "dz.relations": "Relaciones (claves foráneas)",
+    "dz.treeHead": "Modelo",
+    "dz.treeTables": "Tablas",
+    "dz.treeRels": "Relaciones",
+    "dz.treeSchemas": "Esquemas",
+    "dz.treeEmpty": "El modelo está vacío.",
+    "dz.stCols": "{n} columnas",
+    "dz.stCol1": "1 columna",
+    "dz.stRels": "{n} relaciones",
+    "dz.stRel1": "1 relación",
+    "dz.stTables": "{n} tablas",
+    "dz.stTable1": "1 tabla",
     "dz.addRel": "Añadir relación",
     "dz.addCol": "columna",
     "dz.colName": "nombre",
     "dz.colType": "tipo",
+    "dz.thAuto": "valor automático",
     "dz.delTable": "Eliminar tabla",
     "dz.save": "Guardar",
     "dz.sqlTitle": "SQL del modelo",
@@ -238,10 +250,22 @@ const I18N = {
     "dz.clearConfirm": "Clear the whole designer model?",
     "dz.empty": "Add a table to start your model.",
     "dz.relations": "Relations (foreign keys)",
+    "dz.treeHead": "Model",
+    "dz.treeTables": "Tables",
+    "dz.treeRels": "Relations",
+    "dz.treeSchemas": "Schemas",
+    "dz.treeEmpty": "The model is empty.",
+    "dz.stCols": "{n} columns",
+    "dz.stCol1": "1 column",
+    "dz.stRels": "{n} relations",
+    "dz.stRel1": "1 relation",
+    "dz.stTables": "{n} tables",
+    "dz.stTable1": "1 table",
     "dz.addRel": "Add relation",
     "dz.addCol": "column",
     "dz.colName": "name",
     "dz.colType": "type",
+    "dz.thAuto": "auto value",
     "dz.delTable": "Delete table",
     "dz.save": "Save",
     "dz.sqlTitle": "Model SQL",
@@ -2207,6 +2231,10 @@ function askFields(title, fields) {
 // ── Pintar el diseñador ──────────────────────────────────────────────────────
 
 async function showDesigner(on) {
+  // El modo diseño se queda con la ventana entera: árbol, lienzo y barra de
+  // estado, como ERwin. El modo comparar sigue siendo una página que se
+  // desplaza, que es lo que le va a un informe que se lee de arriba abajo.
+  document.body.classList.toggle("dz-full", on);
   document.querySelector(".stepper").hidden = on;
   document.getElementById("designer").hidden = !on;
   document.getElementById("mode-compare").classList.toggle("active", !on);
@@ -2300,7 +2328,8 @@ function renderDesigner() {
 
   for (const tbl of design.tables) canvas.appendChild(buildDesignCard(tbl));
   drawDesignEdges();
-  renderRelList();
+  renderTree();
+  renderStatus();
   renderVersionNote();
   // Si el editor de una tabla está abierto, sus filas se rehacen también: si no,
   // cambiar ahí un tipo dejaría a la vista los controles del tipo anterior.
@@ -2787,6 +2816,10 @@ function buildDesignCard(tbl) {
   if (tbl.w) card.style.width = tbl.w + "px";
   if (tbl.h) card.style.height = tbl.h + "px";
   card.title = t("dz.editHint");
+  if (dzSelEs("table", tbl.id)) card.classList.add("sel");
+  // Pulsar la tarjeta la selecciona en el árbol: el lienzo y el árbol son dos
+  // vistas de lo mismo y señalar en una tiene que verse en la otra.
+  card.addEventListener("mousedown", () => dzSelect("table", tbl.id));
   card.addEventListener("dblclick", (e) => {
     if (e.target.closest("button, .dz-resize, .dz-grip")) return;
     openTableEditor(tbl);
@@ -2942,6 +2975,19 @@ function openTableEditor(tbl) {
     arriba.appendChild(lblEsq);
   }
   body.appendChild(arriba);
+
+  // La cabecera de la rejilla. Va fuera de la lista para que no se desplace con
+  // ella, y usa la misma plantilla de columnas, que es lo que hace que una fila
+  // de `uniqueidentifier` (sin longitud) y una de `varchar(500)` se lean como
+  // una tabla y no como dos filas de anchos distintos.
+  const th = document.createElement("div");
+  th.className = "dz-col dz-ed-th";
+  for (const txt of [t("dz.colName"), t("dz.colType"), t("dz.thAuto"), "PK", "NN"]) {
+    const sp = document.createElement("span");
+    sp.textContent = txt;
+    th.appendChild(sp);
+  }
+  body.appendChild(th);
 
   const ul = document.createElement("ul");
   ul.className = "dz-cols dz-ed-cols";
@@ -3400,7 +3446,9 @@ function drawDesignEdges() {
     // padre. Continua si la relación identifica a la hija, discontinua si no.
     line.setAttribute("marker-start", "url(#dz-crow)");
     line.setAttribute("marker-end", "url(#dz-one)");
+    line.dataset.id = r.id;
     if (!relIsIdentifying(r)) line.setAttribute("class", "dz-no-id");
+    if (dzSelEs("relation", r.id)) line.classList.add("sel");
     svg.appendChild(line);
   }
 
@@ -3416,47 +3464,169 @@ function drawDesignEdges() {
   }
 }
 
-function renderRelList() {
-  const ul = document.getElementById("rel-list");
-  if (!ul) return;
-  ul.innerHTML = "";
-  for (const r of design.relations) {
-    const ft = dzTableById(r.fromTable);
-    const tt = dzTableById(r.toTable);
-    if (!ft || !tt) continue;
-    const li = document.createElement("li");
+/** Lo que hay seleccionado en el árbol, o `null`. */
+let dzSel = null;
 
-    const txt = document.createElement("span");
-    txt.className = "mono dz-rel-txt";
-    const acciones = [r.onDelete ? "ON DELETE " + r.onDelete : "", r.onUpdate ? "ON UPDATE " + r.onUpdate : ""].filter(Boolean).join(" · ");
-    // Una sola columna se lee "tabla.col"; varias, "tabla.(a, b)", que es como
-    // se escribe la clave compuesta en el propio SQL.
-    const lado = (lista) => (lista.length > 1 ? `(${lista.join(", ")})` : lista[0]);
-    txt.textContent =
-      (r.name ? r.name + ": " : "") +
-      `${tblLabel(ft)}.${lado(r.cols.map((p) => p.from))} → ` +
-      `${tblLabel(tt)}.${lado(r.cols.map((p) => p.to))}` +
-      (acciones ? "  " + acciones : "");
-    txt.title = t("dz.relEdit");
-    txt.addEventListener("click", () => editRelation(r));
+function dzSelEs(kind, id) {
+  return !!dzSel && dzSel.kind === kind && dzSel.id === id;
+}
 
+/** Selecciona un objeto, lo deja a la vista en el lienzo y lo cuenta abajo. */
+function dzSelect(kind, id) {
+  dzSel = { kind, id };
+  renderTree();
+  renderStatus();
+  marcarSeleccion();
+  if (kind === "table") {
+    const card = document.querySelector(`.dz-table[data-id="${id}"]`);
+    // `nearest` y no `center`: si la tabla ya se ve, no se mueve nada. Que el
+    // lienzo salte cada vez que se pulsa en el árbol marea más que ayuda.
+    if (card) card.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
+/** Pinta el resalte de lo seleccionado sin rehacer el lienzo entero. */
+function marcarSeleccion() {
+  document.querySelectorAll(".dz-table").forEach((c) => {
+    c.classList.toggle("sel", dzSelEs("table", c.dataset.id));
+  });
+  document.querySelectorAll("#dz-edges polyline").forEach((p) => {
+    p.classList.toggle("sel", dzSelEs("relation", p.dataset.id));
+  });
+}
+
+/** Una rama del árbol: el título con su cuenta y los hijos debajo. */
+function treeGroup(ul, clave, label, n, hijos) {
+  const li = document.createElement("li");
+  li.className = "dz-tr-group";
+  const head = document.createElement("div");
+  head.className = "dz-tr-head";
+  head.textContent = label;
+  const cuenta = document.createElement("span");
+  cuenta.className = "dz-tr-n";
+  cuenta.textContent = n;
+  head.appendChild(cuenta);
+  const sub = document.createElement("ul");
+  sub.className = "dz-tr-sub";
+  // Abierta o cerrada se recuerda mientras dure la sesión: rehacer el árbol en
+  // cada tecla no debe volver a abrir lo que se acaba de cerrar. La clave es
+  // fija y no el título, que cambia al cambiar de idioma.
+  const abierto = dzTreeOpen[clave] !== false;
+  li.classList.toggle("cerrado", !abierto);
+  head.addEventListener("click", () => {
+    dzTreeOpen[clave] = !abierto;
+    renderTree();
+  });
+  li.append(head, sub);
+  ul.appendChild(li);
+  hijos(sub);
+}
+
+const dzTreeOpen = {};
+
+/** Una hoja del árbol: un objeto del modelo. */
+function treeItem(sub, kind, id, texto, onAbrir, onBorrar) {
+  const li = document.createElement("li");
+  li.className = "dz-tr-item" + (dzSelEs(kind, id) ? " sel" : "");
+  const txt = document.createElement("span");
+  txt.className = "dz-tr-txt";
+  txt.textContent = texto;
+  txt.title = texto;
+  li.appendChild(txt);
+  if (onBorrar) {
     const del = document.createElement("button");
     del.type = "button";
-    del.className = "dz-icon-btn";
-    del.textContent = "✕";
-    del.addEventListener("click", () => {
-      design.relations = design.relations.filter((x) => x.id !== r.id);
-      saveDesign();
-      renderDesigner();
-    });
-
-    li.append(txt, document.createElement("span"), del);
-    li.children[1].className = "spacer";
-    ul.appendChild(li);
+    del.className = "dz-icon-btn dz-tr-del";
+    del.textContent = "\u2715";
+    del.addEventListener("click", (e) => { e.stopPropagation(); onBorrar(); });
+    li.appendChild(del);
   }
-  const vacio = document.getElementById("rel-empty");
-  if (vacio) vacio.hidden = design.relations.length > 0;
+  // Un clic selecciona y dos abren, igual que en el lienzo: así se puede mirar
+  // qué es cada cosa sin que se abra un diálogo a cada paso.
+  li.addEventListener("click", () => dzSelect(kind, id));
+  if (onAbrir) li.addEventListener("dblclick", onAbrir);
+  sub.appendChild(li);
 }
+
+/** El árbol de objetos del modelo, el Model Explorer de ERwin.
+ *
+ *  Con quince tablas el lienzo deja de servir para saber qué hay: hay que
+ *  buscar la caja con la vista. El árbol dice de un vistazo qué contiene el
+ *  modelo y lleva a cada cosa. Las relaciones viven aquí, donde ERwin las
+ *  pone, y no en una lista aparte debajo del lienzo. */
+function renderTree() {
+  const ul = document.getElementById("dz-tree-list");
+  if (!ul) return;
+  ul.innerHTML = "";
+
+  treeGroup(ul, "tables", t("dz.treeTables"), design.tables.length, (sub) => {
+    for (const tbl of design.tables) {
+      treeItem(sub, "table", tbl.id, tblLabel(tbl), () => openTableEditor(tbl), () => {
+        if (!confirm(t("dz.delTable") + ": " + tblLabel(tbl) + "?")) return;
+        design.tables = design.tables.filter((x) => x.id !== tbl.id);
+        design.relations = design.relations.filter((r) => r.fromTable !== tbl.id && r.toTable !== tbl.id);
+        if (dzSelEs("table", tbl.id)) dzSel = null;
+        saveDesign();
+        renderDesigner();
+      });
+    }
+  });
+
+  treeGroup(ul, "rels", t("dz.treeRels"), design.relations.length, (sub) => {
+    for (const r of design.relations) {
+      const ft = dzTableById(r.fromTable);
+      const tt = dzTableById(r.toTable);
+      if (!ft || !tt) continue;
+      treeItem(sub, "relation", r.id, r.name || dzRelName(ft, tt), () => editRelation(r), () => {
+        design.relations = design.relations.filter((x) => x.id !== r.id);
+        if (dzSelEs("relation", r.id)) dzSel = null;
+        saveDesign();
+        renderDesigner();
+      });
+    }
+  });
+
+  if (dz?.supports_schemas) {
+    const esquemas = dzSchemas();
+    treeGroup(ul, "schemas", t("dz.treeSchemas"), esquemas.length, (sub) => {
+      for (const e of esquemas) treeItem(sub, "schema", e, e, null, null);
+    });
+  }
+}
+
+/** La barra de abajo: qué hay seleccionado, o de qué tamaño es el modelo. */
+function renderStatus() {
+  const el = document.getElementById("dz-status");
+  if (!el) return;
+  const plural = (n, uno, varios) => (n === 1 ? t(uno) : t(varios).replace("{n}", n));
+
+  if (dzSel && dzSel.kind === "table") {
+    const tbl = dzTableById(dzSel.id);
+    if (tbl) {
+      const rels = design.relations.filter((r) => r.fromTable === tbl.id || r.toTable === tbl.id).length;
+      el.textContent = `${tblLabel(tbl)} \u00b7 ${plural(tbl.columns.length, "dz.stCol1", "dz.stCols")} \u00b7 ${plural(rels, "dz.stRel1", "dz.stRels")}`;
+      return;
+    }
+  }
+  if (dzSel && dzSel.kind === "relation") {
+    const r = design.relations.find((x) => x.id === dzSel.id);
+    const ft = r && dzTableById(r.fromTable);
+    const tt = r && dzTableById(r.toTable);
+    if (ft && tt) {
+      const lado = (l) => (l.length > 1 ? `(${l.join(", ")})` : l[0]);
+      const acciones = [r.onDelete ? "ON DELETE " + r.onDelete : "", r.onUpdate ? "ON UPDATE " + r.onUpdate : ""].filter(Boolean).join(" \u00b7 ");
+      el.textContent =
+        `${r.name ? r.name + ": " : ""}${tblLabel(ft)}.${lado(r.cols.map((p) => p.from))} \u2192 ` +
+        `${tblLabel(tt)}.${lado(r.cols.map((p) => p.to))}${acciones ? "  " + acciones : ""}`;
+      return;
+    }
+  }
+  if (!design.tables.length) { el.textContent = t("dz.treeEmpty"); return; }
+  el.textContent =
+    `${plural(design.tables.length, "dz.stTable1", "dz.stTables")} \u00b7 ` +
+    `${plural(design.relations.length, "dz.stRel1", "dz.stRels")} \u00b7 ${t("dz.relHint")}`;
+}
+
 
 // ── Exportadores ─────────────────────────────────────────────────────────────
 /** Las columnas de un lado de la clave foránea, entrecomilladas y separadas por
