@@ -435,8 +435,9 @@ está vacía). Lee y vuelve a emitir las **columnas que se autogeneran** en los 
 destino no puede expresarlas lo dice en un comentario en vez de perderlas en silencio.
 Compara **datos de filas** (SQLite) produciendo
 `INSERT`/`UPDATE`/`DELETE`, dibuja un **diagrama ER interactivo** (exportable a PNG/SVG) e
-incluye un **diseñador ER** que **valida el modelo contra el catálogo del motor** —tipos que
-ese motor no tiene, longitudes que no admite, foráneas que no apuntan a una clave— antes de
+incluye un **diseñador ER** con tablas, relaciones e **índices**, que **valida el modelo
+contra el catálogo del motor** —tipos que ese motor no tiene, longitudes que no admite,
+foráneas que no apuntan a una clave o que se quedaron sin índice— antes de
 exportar a **SQL** y **Prisma**, recorta un modelo grande en **áreas temáticas** —cada una
 con su propia disposición— y **deriva los nombres físicos de los lógicos** con un glosario y
 unas reglas de nomenclatura. La interfaz es bilingüe

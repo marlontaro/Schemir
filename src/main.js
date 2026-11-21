@@ -95,6 +95,19 @@ const I18N = {
     "dz.nmCount": "{n} cambios",
     "dz.nmCount1": "1 cambio",
     "dz.nmWordDel": "\u00bfQuitar {t} del glosario?",
+    "dz.indexes": "\u00cdndices",
+    "dz.ixAdd": "+ \u00cdndice",
+    "dz.ixName": "Nombre del \u00edndice",
+    "dz.ixUnique": "\u00fanico",
+    "dz.ixCol": "+ columna",
+    "dz.ixNone": "Sin \u00edndices.",
+    "dz.ixDel": "Quitar el \u00edndice",
+    "dz.ixDelCol": "Quitar la columna del \u00edndice",
+    "dz.vIxEmpty": "{t}: el \u00edndice {x} no tiene columnas",
+    "dz.vIxDup": "{t}: hay dos \u00edndices llamados {x}",
+    "dz.vIxCol": "{t}: el \u00edndice {x} nombra {c}, que no existe",
+    "dz.vIxPk": "{t}: el \u00edndice {x} repite la clave primaria, que ya trae el suyo",
+    "dz.vFkNoIx": "{n}: la for\u00e1nea de {t} no tiene \u00edndice",
     "dz.domains": "Dominios",
     "dz.domainNew": "Dominio nuevo",
     "dz.domainTitle": "Dominio",
@@ -424,6 +437,19 @@ const I18N = {
     "dz.nmCount": "{n} changes",
     "dz.nmCount1": "1 change",
     "dz.nmWordDel": "Remove {t} from the glossary?",
+    "dz.indexes": "Indexes",
+    "dz.ixAdd": "+ Index",
+    "dz.ixName": "Index name",
+    "dz.ixUnique": "unique",
+    "dz.ixCol": "+ column",
+    "dz.ixNone": "No indexes.",
+    "dz.ixDel": "Remove the index",
+    "dz.ixDelCol": "Remove the column from the index",
+    "dz.vIxEmpty": "{t}: index {x} has no columns",
+    "dz.vIxDup": "{t}: there are two indexes called {x}",
+    "dz.vIxCol": "{t}: index {x} names {c}, which does not exist",
+    "dz.vIxPk": "{t}: index {x} repeats the primary key, which already has one",
+    "dz.vFkNoIx": "{n}: the foreign key on {t} has no index",
     "dz.domains": "Domains",
     "dz.domainNew": "New domain",
     "dz.domainTitle": "Domain",
@@ -2247,6 +2273,18 @@ function migrateDesign(d) {
     if (typeof tbl.color !== "string") tbl.color = "";
     if (typeof tbl.logical !== "string") tbl.logical = "";
     tbl.columns = tbl.columns || [];
+    // Un indice nombra sus columnas, asi que una que ya no esta deja de estar
+    // en el indice; el que se queda sin ninguna se va con ellas, igual que una
+    // relacion sin pares.
+    tbl.indexes = (Array.isArray(tbl.indexes) ? tbl.indexes : [])
+      .map((ix) => ({
+        name: String(ix.name || ""),
+        unique: !!ix.unique,
+        cols: (Array.isArray(ix.cols) ? ix.cols : [])
+          .map(String)
+          .filter((n) => tbl.columns.some((c) => c.name === n)),
+      }))
+      .filter((ix) => ix.cols.length);
     for (const col of tbl.columns) {
       if (col.a === undefined && col.b === undefined) Object.assign(col, splitType(col.type));
       col.a = col.a ?? "";
@@ -2350,6 +2388,137 @@ function dzRequired() {
     }
   }
   return req;
+}
+
+// ── Indices ──────────────────────────────────────────────────────────────────
+
+/** Los indices de una tabla, creando la lista la primera vez. */
+function tblIndexes(tbl) {
+  if (!Array.isArray(tbl.indexes)) tbl.indexes = [];
+  return tbl.indexes;
+}
+
+/** El nombre del indice: el suyo, o uno derivado de la tabla y sus columnas.
+ *
+ *  Como el de la relacion: se puede escribir, pero no hay que escribirlo. Un
+ *  nombre obligatorio no aporta nada en el noventa por ciento de los indices,
+ *  que son «este campo, por el que siempre busco». */
+function dzIxName(tbl, ix) {
+  return String(ix.name || "").trim() || `ix_${tbl.name}_${ix.cols.join("_")}`;
+}
+
+/** Saca una columna de los indices de su tabla. Al borrarla. */
+function dropColFromIndexes(tbl, nombre) {
+  if (!Array.isArray(tbl.indexes)) return;
+  for (const ix of tbl.indexes) ix.cols = ix.cols.filter((n) => n !== nombre);
+  tbl.indexes = tbl.indexes.filter((ix) => ix.cols.length);
+}
+
+/** Y la sigue cuando se renombra: el indice la nombra por su nombre, asi que
+ *  sin esto quedaria apuntando a una columna que ya no se llama asi. */
+function renameColInIndexes(tbl, antes, ahora) {
+  if (!antes || antes === ahora || !Array.isArray(tbl.indexes)) return;
+  for (const ix of tbl.indexes) ix.cols = ix.cols.map((n) => (n === antes ? ahora : n));
+}
+
+/** ¿Una lista de columnas EMPIEZA por estas otras?
+ *
+ *  Un indice sirve a una busqueda por (a, b) si sus primeras columnas son (a,
+ *  b) en ese orden; lo que venga detras no estorba. Por eso se mira el
+ *  principio y no el conjunto: un indice por (b, a) NO sirve. */
+function empiezaPor(lista, cuales) {
+  return cuales.length > 0 && lista.length >= cuales.length && cuales.every((n, i) => lista[i] === n);
+}
+
+/** Las filas de indices del editor de la tabla. */
+function buildIndexRows(tbl, pintar) {
+  const caja = document.createElement("div");
+  caja.className = "dz-ix-list";
+  const indices = tblIndexes(tbl);
+  if (!indices.length) {
+    const p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = t("dz.ixNone");
+    caja.appendChild(p);
+    return caja;
+  }
+  for (const ix of indices) {
+    const fila = document.createElement("div");
+    fila.className = "dz-ix-row";
+
+    const nom = document.createElement("input");
+    nom.type = "text";
+    nom.className = "dz-ix-nm";
+    nom.value = ix.name;
+    // El marcador ensena el nombre que saldria solo: asi se ve que dejarlo
+    // vacio no es dejarlo sin nombre.
+    nom.placeholder = dzIxName(tbl, ix);
+    nom.addEventListener("input", () => { ix.name = nom.value; saveDesign(); renderCanvasKeepingEditor(); });
+
+    const uni = document.createElement("label");
+    uni.className = "dz-flag";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !!ix.unique;
+    cb.addEventListener("change", () => { ix.unique = cb.checked; saveDesign(); pintar(); });
+    uni.append(cb, document.createTextNode(t("dz.ixUnique")));
+
+    const cols = document.createElement("div");
+    cols.className = "dz-ix-cols";
+    ix.cols.forEach((nombre, i) => {
+      const sel = document.createElement("select");
+      sel.className = "dz-ix-sel";
+      for (const c of tbl.columns) sel.appendChild(new Option(colDisplay(c), c.name));
+      sel.value = nombre;
+      sel.addEventListener("change", () => { ix.cols[i] = sel.value; saveDesign(); pintar(); });
+      const x = document.createElement("button");
+      x.type = "button";
+      x.className = "dz-icon-btn";
+      x.textContent = "\u2715";
+      x.title = t("dz.ixDelCol");
+      x.addEventListener("click", () => {
+        ix.cols.splice(i, 1);
+        if (!ix.cols.length) tbl.indexes = tbl.indexes.filter((y) => y !== ix);
+        saveDesign();
+        pintar();
+      });
+      const par = document.createElement("span");
+      par.className = "dz-ix-par";
+      par.append(sel, x);
+      cols.appendChild(par);
+    });
+
+    const mas = document.createElement("button");
+    mas.type = "button";
+    mas.className = "dz-icon-btn dz-ix-mas";
+    mas.textContent = "+";
+    mas.title = t("dz.ixCol");
+    mas.addEventListener("click", () => {
+      // La primera que todavia no este: anadir la misma dos veces no es un
+      // indice de dos columnas, es un error que el motor rechaza.
+      const libre = tbl.columns.find((c) => !ix.cols.includes(c.name));
+      if (!libre) return;
+      ix.cols.push(libre.name);
+      saveDesign();
+      pintar();
+    });
+    cols.appendChild(mas);
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "dz-icon-btn dz-ix-del";
+    del.textContent = "\u2715";
+    del.title = t("dz.ixDel");
+    del.addEventListener("click", () => {
+      tbl.indexes = tbl.indexes.filter((y) => y !== ix);
+      saveDesign();
+      pintar();
+    });
+
+    fila.append(nom, uni, cols, del);
+    caja.appendChild(fila);
+  }
+  return caja;
 }
 
 // ── Nomenclatura ─────────────────────────────────────────────────────────────
@@ -2520,6 +2689,12 @@ function dzNamingPlan(opts) {
 /** Aplica el plan. */
 function dzNamingApply(filas) {
   let hechos = 0;
+  // Los indices nombran sus columnas igual que las relaciones, asi que el
+  // renombrado masivo tiene que arrastrarlos tambien.
+  for (const f of filas) {
+    if (f.choca || f.kind !== "column") continue;
+    renameColInIndexes(f.tbl, f.antes, f.prop);
+  }
   for (const f of filas) {
     if (f.choca || f.kind !== "table") continue;
     f.tbl.name = f.prop;
@@ -3760,6 +3935,7 @@ function buildColRow(tbl, col, idx) {
       const antes = col.name;
       col.name = name.value;
       renameColInRelations(tbl, antes, col.name);
+      renameColInIndexes(tbl, antes, col.name);
     }
     saveDesign();
     renderCanvasKeepingEditor();
@@ -3801,6 +3977,7 @@ function buildColRow(tbl, col, idx) {
     // aparece ninguna nueva que migrar, y los pares que la nombraban se van con
     // ella, que es exactamente la clave que queda.
     dropColFromRelations(tbl, ido.name);
+    dropColFromIndexes(tbl, ido.name);
     saveDesign();
     renderDesigner();
   });
@@ -4141,22 +4318,39 @@ function openTableEditor(tbl) {
   // de `uniqueidentifier` (sin longitud) y una de `varchar(500)` se lean como
   // una tabla y no como dos filas de anchos distintos.
   const th = document.createElement("div");
-  th.className = "dz-col dz-ed-th" + (dzLogical() ? " logica" : "");
-  const cabeceras = dzLogical()
-    ? [t("dz.logicalCol"), "PK", "NN"]
-    : [t("dz.colName"), t("dz.colType"), t("dz.thAuto"), "PK", "NN"];
-  for (const txt of cabeceras) {
-    const sp = document.createElement("span");
-    sp.textContent = txt;
-    th.appendChild(sp);
-  }
   body.appendChild(th);
 
   const ul = document.createElement("ul");
-  ul.className = "dz-cols dz-ed-cols" + (dzLogical() ? " logica" : "");
   body.appendChild(ul);
 
+  // La cabecera y la rejilla se rehacen en cada pasada, no una sola vez: con el
+  // dialogo abierto se puede cambiar de vista, y la plantilla de columnas de
+  // logico tiene tres huecos y la de fisico cinco. Montandola una vez, cambiar
+  // de vista dejaba las filas en logico bajo una cabecera de fisico.
+  const pintarCabecera = () => {
+    th.className = "dz-col dz-ed-th" + (dzLogical() ? " logica" : "");
+    ul.className = "dz-cols dz-ed-cols" + (dzLogical() ? " logica" : "");
+    th.replaceChildren();
+    const cabeceras = dzLogical()
+      ? [t("dz.logicalCol"), "PK", "NN"]
+      : [t("dz.colName"), t("dz.colType"), t("dz.thAuto"), "PK", "NN"];
+    for (const txt of cabeceras) {
+      const sp = document.createElement("span");
+      sp.textContent = txt;
+      th.appendChild(sp);
+    }
+  };
+
+  // Los indices van debajo de las columnas, en el mismo dialogo: un indice es
+  // una propiedad fisica de la tabla y se decide mirando sus columnas, no en
+  // otra ventana. En logico no se ensenan: un indice no existe en un modelo de
+  // negocio, igual que el esquema y el tipo del motor.
+  const ixCaja = document.createElement("div");
+  ixCaja.className = "dz-ix-box";
+  ixCaja.hidden = dzLogical();
+
   const pintar = () => {
+    pintarCabecera();
     ul.replaceChildren();
     tbl.columns.forEach((c, i) => ul.appendChild(buildColRow(tbl, c, i)));
     if (!tbl.columns.length) {
@@ -4165,6 +4359,30 @@ function openTableEditor(tbl) {
       p.textContent = t("dz.noCols");
       ul.appendChild(p);
     }
+    spNombre.textContent = dzLogical() ? t("dz.logicalName") : t("dz.tableName");
+    inNombre.value = dzLogical() ? tbl.logical : tbl.name;
+    inNombre.placeholder = dzLogical() ? tbl.name : "";
+    ixCaja.hidden = dzLogical();
+    ixCaja.replaceChildren();
+    const tt = document.createElement("div");
+    tt.className = "dz-ix-tt";
+    const sp = document.createElement("span");
+    sp.textContent = t("dz.indexes");
+    const mas = document.createElement("button");
+    mas.type = "button";
+    mas.className = "btn ghost";
+    mas.textContent = t("dz.ixAdd");
+    // Un indice nuevo nace sobre la primera columna que no sea la primaria
+    // entera: casi siempre es esa, y si no, se cambia en el desplegable.
+    mas.addEventListener("click", () => {
+      const col = tbl.columns.find((c) => !c.pk) || tbl.columns[0];
+      if (!col) return;
+      tblIndexes(tbl).push({ name: "", unique: false, cols: [col.name] });
+      saveDesign();
+      pintar();
+    });
+    tt.append(sp, mas);
+    ixCaja.append(tt, buildIndexRows(tbl, pintar));
   };
   pintar();
 
@@ -4178,6 +4396,7 @@ function openTableEditor(tbl) {
     renderDesigner();
   });
   body.appendChild(addCol);
+  body.appendChild(ixCaja);
   caja.appendChild(body);
 
   const foot = document.createElement("div");
@@ -5176,6 +5395,22 @@ function validateDesign() {
     // modelo entidad-relacion es casi siempre un descuido.
     else if (!tbl.columns.some((c) => c.pk)) avi("dz.vTableNoPk", {});
 
+    // ── Los indices de la tabla ──
+    const nombresIx = new Set();
+    const pk = tbl.columns.filter((c) => c.pk).map((c) => c.name);
+    for (const ix of tblIndexes(tbl)) {
+      const nIx = dzIxName(tbl, ix);
+      if (!ix.cols.length) { err("dz.vIxEmpty", { x: nIx }); continue; }
+      const falta = ix.cols.find((n) => !tbl.columns.some((c) => c.name === n));
+      if (falta) err("dz.vIxCol", { x: nIx, c: falta });
+      const k = nIx.toLowerCase();
+      if (nombresIx.has(k)) err("dz.vIxDup", { x: nIx });
+      nombresIx.add(k);
+      // Un indice con las MISMAS columnas que la primaria no aporta nada: la
+      // primaria ya trae el suyo, y el motor va a mantener los dos.
+      if (pk.length && mismoConjunto(ix.cols, pk)) avi("dz.vIxPk", { x: nIx });
+    }
+
     const vistas = new Set();
     for (const col of tbl.columns) {
       // En fisico la columna se nombra como la nombra el motor:
@@ -5260,6 +5495,17 @@ function validateDesign() {
     if (!pkPadre.length) err("dz.vRelNoKey", { t: tblLabel(padre) });
     else if (!mismoConjunto(r.cols.map((p) => p.to), pkPadre)) {
       err("dz.vRelKey", { t: tblLabel(padre), k: pkPadre.join(", ") });
+    }
+
+    // Una foranea sin indice en la HIJA es el fallo de rendimiento clasico: el
+    // padre tiene el suyo porque es su clave, y la hija no tiene ninguno, asi
+    // que cada borrado del padre y cada join recorren la tabla entera. Vale
+    // cualquier indice que EMPIECE por esas columnas, y tambien la primaria si
+    // empieza por ellas —que es lo que pasa en una relacion identificadora—.
+    const fkCols2 = r.cols.map((p) => p.from);
+    const pkHija = hija.columns.filter((c) => c.pk).map((c) => c.name);
+    if (!empiezaPor(pkHija, fkCols2) && !tblIndexes(hija).some((ix) => empiezaPor(ix.cols, fkCols2))) {
+      avi("dz.vFkNoIx", { t: tblLabel(hija) });
     }
 
     for (const p of r.cols) {
@@ -5570,6 +5816,21 @@ function designToSql(dialect) {
       out += `ALTER TABLE ${qt(ft)} ADD CONSTRAINT ${q(r.name || dzRelName(ft, tt))} FOREIGN KEY (${fkCols(r, "from", q)}) REFERENCES ${qt(tt)} (${fkCols(r, "to", q)})${fkActions(r)};\n`;
     }
   }
+
+  // Los indices al final, despues de las foraneas. `CREATE [UNIQUE] INDEX x ON
+  // t (a, b)` se escribe igual en los cuatro motores, asi que no hay nada que
+  // ramificar aqui; lo que cada uno anade por su cuenta —el INCLUDE de SQL
+  // Server, los indices parciales de PostgreSQL— no se modela todavia.
+  const indices = design.tables.flatMap((tbl) =>
+    tblIndexes(tbl)
+      .filter((ix) => ix.cols.length && ix.cols.every((n) => tbl.columns.some((c) => c.name === n)))
+      .map((ix) => ({ tbl, ix })));
+  if (indices.length) {
+    out += "\n";
+    for (const { tbl, ix } of indices) {
+      out += `CREATE ${ix.unique ? "UNIQUE " : ""}INDEX ${q(dzIxName(tbl, ix))} ON ${qt(tbl)} (${ix.cols.map(q).join(", ")});\n`;
+    }
+  }
   return out;
 }
 
@@ -5644,6 +5905,10 @@ function designToPrisma() {
       if (ft) out += `  ${(ft.name || "rel").toLowerCase()}s ${pascal(ft.name)}[]\n`;
     }
     if (pkCols.length > 1) out += `  @@id([${pkCols.join(", ")}])\n`;
+    for (const ix of tblIndexes(tbl)) {
+      if (!ix.cols.length) continue;
+      out += `  ${ix.unique ? "@@unique" : "@@index"}([${ix.cols.join(", ")}])\n`;
+    }
     // El esquema, cuando el motor los tiene y la tabla no está en el de siempre.
     const s = tblSchema(tbl);
     if (dz?.supports_schemas && s && s !== dz.default_schema) out += `  @@schema("${s}")\n`;
@@ -5845,6 +6110,12 @@ function designToXml() {
     for (const c of tbl.columns) {
       out += `      <column${at("name", c.name)}${at("logical", c.logical)}${at("domain", c.domain)}${at("type", fullType(c))}${at("auto", c.auto)}${c.pk ? ' pk="true"' : ""}${c.nn ? ' nn="true"' : ""} />\n`;
     }
+    for (const ix of tblIndexes(tbl)) {
+      if (!ix.cols.length) continue;
+      // Las columnas en un atributo y separadas por comas: el orden es lo unico
+      // que hay que conservar y asi se lee de un vistazo cual manda.
+      out += `      <index${at("name", ix.name)}${ix.unique ? ' unique="true"' : ""}${at("columns", ix.cols.join(","))} />\n`;
+    }
     out += "    </table>\n";
   }
   out += "  </tables>\n";
@@ -5956,6 +6227,7 @@ function xmlToDesign(texto) {
       w: Number(te.getAttribute("w")) || 0,
       h: Number(te.getAttribute("h")) || 0,
       columns: [],
+      indexes: [],
     };
     for (const ce of te.querySelectorAll("column")) {
       const p = splitType(ce.getAttribute("type") || "");
@@ -5969,6 +6241,15 @@ function xmlToDesign(texto) {
         auto: ce.getAttribute("auto") || "",
         pk: ce.getAttribute("pk") === "true",
         nn: ce.getAttribute("nn") === "true",
+      });
+    }
+    for (const ie of te.querySelectorAll("index")) {
+      const cols = (ie.getAttribute("columns") || "").split(",").map((x) => x.trim()).filter(Boolean);
+      if (!cols.length) continue;
+      tbl.indexes.push({
+        name: ie.getAttribute("name") || "",
+        unique: ie.getAttribute("unique") === "true",
+        cols,
       });
     }
     d.tables.push(tbl);

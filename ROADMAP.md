@@ -121,6 +121,26 @@ _Última actualización: noviembre 2026._
 - **Borrar una columna la saca de las relaciones.** Antes la relación seguía nombrándola:
   la marca `(FK)` se perdía y el script salía con una foránea sobre un nombre inventado.
   La relación que se queda sin ningún par se va con ellos.
+- **Índices**, que es lo que separa un dibujo de un modelo físico: hasta ahora el diseñador
+  sabía poner claves y foráneas y nada más, y un esquema real necesita índices desde la
+  primera tabla. Van **debajo de las columnas, en el mismo diálogo** —un índice es una
+  propiedad física de la tabla y se decide mirando sus columnas, no en otra ventana— y no
+  se enseñan en lógico, igual que el esquema y el tipo del motor. Una fila por índice: el
+  nombre, `único`, y las columnas **en orden**, porque en un índice el orden es la mitad
+  del índice. El **nombre se puede escribir pero no hace falta**: sin él sale
+  `ix_pedido_fecha`, y el marcador de posición lo enseña para que se vea que dejarlo vacío
+  no es dejarlo sin nombre. `CREATE [UNIQUE] INDEX x ON t (a, b)` se escribe igual en los
+  cuatro motores, así que no hay nada que ramificar; lo que cada uno añade por su cuenta
+  —el `INCLUDE` de SQL Server, los parciales de PostgreSQL, el `DESC` por columna— no se
+  modela todavía. En Prisma salen como `@@index` / `@@unique`. Borrar o renombrar una
+  columna **arrastra a sus índices**, igual que a sus relaciones, y el índice que se queda
+  sin ninguna se va con ellas. La validación añade tres cosas: dos índices con el mismo
+  nombre (error), un índice que **repite la clave primaria** —que ya trae el suyo, y el
+  motor mantendría los dos— y, sobre todo, **la foránea sin índice**: el padre tiene el
+  suyo porque es su clave y la hija no tiene ninguno, así que cada join y cada borrado del
+  padre recorren la tabla entera. Vale cualquier índice que **empiece** por esas columnas
+  —lo que venga detrás no estorba, pero uno por `(b, a)` no sirve— y también la primaria
+  si empieza por ellas, que es lo que pasa en una relación identificadora.
 - **El nombre físico se deriva del lógico**, el estándar de nomenclatura de ERwin. El
   modelo lógico se escribe en el idioma del negocio —«Pedido de venta»— y la base lo
   quiere en el suyo —`pedido_venta`—; escribirlo dos veces a mano es de donde salen las

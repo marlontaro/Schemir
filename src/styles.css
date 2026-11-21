@@ -646,6 +646,36 @@ body.dz-full #design-output {
   transition: transform 0.12s ease; opacity: 0.6;
 }
 .dz-tr-group.cerrado .dz-tr-head::before { transform: rotate(0deg); }
+/* Los indices, debajo de las columnas en el editor de la tabla. Una fila por
+   indice y las columnas en linea: el indice corriente es de una sola columna y
+   no merece tres lineas de pantalla. Las de varias se parten solas. */
+.dz-ix-box { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.dz-ix-tt { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+.dz-ix-tt > .btn { margin-left: auto; }
+.dz-ix-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.dz-ix-list > .empty { margin: 4px 0; font-size: 12px; }
+.dz-ix-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 8px;
+}
+.dz-ix-nm { flex: 0 1 200px; min-width: 120px; }
+/* `.dz-flag` solo esta vestido dentro de `.dz-col`, y aqui manda el
+   `.dz-modal-body label` del dialogo: columna, y la casilla al 100% de ancho.
+   Con eso «unico» caia debajo y la fila media el doble por una palabra de seis
+   letras. */
+.dz-modal-body label.dz-flag {
+  flex-direction: row; align-items: center; gap: 4px; flex: 0 0 auto;
+  white-space: nowrap; font-size: 11px; cursor: pointer; user-select: none;
+}
+.dz-modal-body label.dz-flag input[type="checkbox"] {
+  width: 13px; height: 13px; padding: 0; accent-color: var(--accent); cursor: pointer;
+}
+.dz-ix-cols { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 auto; }
+.dz-ix-par { display: inline-flex; align-items: center; gap: 2px; }
+.dz-ix-sel { width: auto !important; min-width: 90px; padding: 4px 6px !important; font-size: 12px !important; }
+.dz-ix-del { margin-left: auto; }
+
 /* El editor de la nomenclatura. Ancho porque lo que se lee aqui son dos
    columnas de nombres enfrentadas, y estrecharlas obliga a cortarlos justo
    donde se diferencian. */
